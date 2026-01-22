@@ -21,7 +21,7 @@ jobs:
           version: 0.15.2
 
       - name: Format
-        run: zig fmt --check src
+        run: zig fmt .
 
       - name: Build
         run: zig build
