@@ -50,12 +50,12 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
         const cmd = parser.next() catch |err| {
             try stdout.print("!! Kilnexusfile syntax error at line {d}: {s}\n", .{
                 parser.currentLine(),
-                parserErrorMessage(err),
+                core.protocol_error.parserErrorMessage(err),
             });
             const line_text = parser.currentLineText();
             if (line_text.len > 0) {
                 try stdout.print("!!   {s}\n", .{line_text});
-                const caret_line = formatCaretLine(allocator, parser.currentErrorColumn()) catch "";
+                const caret_line = core.protocol_error.formatCaretLine(allocator, parser.currentErrorColumn()) catch "";
                 defer if (caret_line.len > 0) allocator.free(caret_line);
                 if (caret_line.len > 0) {
                     try stdout.print("!!   {s}\n", .{caret_line});
@@ -99,7 +99,7 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
     }
 
     const output_name = project_name orelse "Kilnexus-out";
-    const env = core.toolchain.VirtualEnv{
+    const env = core.toolchain_common.VirtualEnv{
         .target = target,
         .kernel_version = kernel_version,
         .sysroot = sysroot,
@@ -109,22 +109,34 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
         const zig_version = bootstrap_versions.zig orelse core.toolchain_manager.default_zig_version;
         const zig_path = resolveOrBootstrapZig(allocator, cwd, stdout, zig_version) catch return;
         defer allocator.free(zig_path);
-        try core.toolchain.compileC(allocator, cwd, path, .{
+        const options = core.toolchain_common.CompileOptions{
             .output_name = output_name,
             .static = true,
             .zig_path = zig_path,
             .env = env,
-        });
+        };
+        var args = try core.toolchain_builder_zig.buildZigArgs(allocator, "cc", path, options);
+        defer args.deinit(allocator);
+        var env_map = try core.toolchain_executor.getEnvMap(allocator);
+        defer env_map.deinit();
+        try core.toolchain_executor.ensureSourceDateEpoch(&env_map);
+        try core.toolchain_executor.runWithEnvMap(allocator, cwd, args.argv.items, env, &env_map);
     } else if (std.mem.endsWith(u8, path, ".cpp") or std.mem.endsWith(u8, path, ".cc") or std.mem.endsWith(u8, path, ".cxx")) {
         const zig_version = bootstrap_versions.zig orelse core.toolchain_manager.default_zig_version;
         const zig_path = resolveOrBootstrapZig(allocator, cwd, stdout, zig_version) catch return;
         defer allocator.free(zig_path);
-        try core.toolchain.compileCpp(allocator, cwd, path, .{
+        const options = core.toolchain_common.CompileOptions{
             .output_name = output_name,
             .static = true,
             .zig_path = zig_path,
             .env = env,
-        });
+        };
+        var args = try core.toolchain_builder_zig.buildZigArgs(allocator, "c++", path, options);
+        defer args.deinit(allocator);
+        var env_map = try core.toolchain_executor.getEnvMap(allocator);
+        defer env_map.deinit();
+        try core.toolchain_executor.ensureSourceDateEpoch(&env_map);
+        try core.toolchain_executor.runWithEnvMap(allocator, cwd, args.argv.items, env, &env_map);
     } else if (std.mem.endsWith(u8, path, ".rs")) {
         const zig_version = bootstrap_versions.zig orelse core.toolchain_manager.default_zig_version;
         const rust_version = bootstrap_versions.rust orelse core.toolchain_manager.default_rust_version;
@@ -132,13 +144,21 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
         defer allocator.free(zig_path);
         var rust_paths = resolveOrBootstrapRust(allocator, cwd, stdout, rust_version) catch return;
         defer rust_paths.deinit(allocator);
-        try core.toolchain.compileRust(allocator, cwd, path, .{
+        const options = core.toolchain_common.CompileOptions{
             .output_name = output_name,
             .static = true,
             .zig_path = zig_path,
             .rustc_path = rust_paths.rustc,
             .env = env,
-        });
+        };
+        const remap_prefix = try getRemapPrefix(allocator, cwd);
+        defer if (remap_prefix) |prefix| allocator.free(prefix);
+        var args = try core.toolchain_builder_rust.buildRustArgs(allocator, path, options, remap_prefix);
+        defer args.deinit(allocator);
+        var env_map = try core.toolchain_executor.getEnvMap(allocator);
+        defer env_map.deinit();
+        try core.toolchain_executor.ensureSourceDateEpoch(&env_map);
+        try core.toolchain_executor.runWithEnvMap(allocator, cwd, args.argv.items, env, &env_map);
     } else if (std.mem.endsWith(u8, path, "Cargo.toml") or try containsCargoManifest(cwd, path)) {
         const zig_version = bootstrap_versions.zig orelse core.toolchain_manager.default_zig_version;
         const rust_version = bootstrap_versions.rust orelse core.toolchain_manager.default_rust_version;
@@ -148,13 +168,35 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
         defer rust_paths.deinit(allocator);
         const manifest_path = try resolveCargoManifestPath(allocator, cwd, path);
         defer allocator.free(manifest_path);
-        try core.toolchain.buildRustCargo(allocator, cwd, .{
+        const options = core.toolchain_common.CompileOptions{
             .zig_path = zig_path,
             .rustc_path = rust_paths.rustc,
             .cargo_path = rust_paths.cargo,
             .env = env,
             .cargo_manifest_path = manifest_path,
-        });
+        };
+        var plan = try core.toolchain_builder_rust.buildCargoPlan(allocator, options);
+        defer plan.deinit(allocator);
+        var env_map = try core.toolchain_executor.getEnvMap(allocator);
+        defer env_map.deinit();
+        const existing_rustflags = env_map.get("RUSTFLAGS");
+        const remap_prefix = try getRemapPrefix(allocator, cwd);
+        defer if (remap_prefix) |prefix| allocator.free(prefix);
+        var env_update = try core.toolchain_builder_rust.buildCargoEnvUpdate(
+            allocator,
+            options,
+            plan.target_value,
+            existing_rustflags,
+            remap_prefix,
+        );
+        defer env_update.deinit(allocator);
+        try env_map.put("RUSTFLAGS", env_update.rustflags_value);
+        if (env_update.linker_key) |key| {
+            try env_map.put(key, env_update.linker_value.?);
+        }
+        try env_map.put("RUSTC", options.rustc_path);
+        try core.toolchain_executor.ensureSourceDateEpoch(&env_map);
+        try core.toolchain_executor.runProcessWithEnv(allocator, cwd, plan.args.argv.items, &env_map);
     } else {
         try stdout.print(">> TODO: BUILD supports only C/C++/Rust sources or Cargo.toml for now.\n", .{});
         return;
@@ -294,6 +336,10 @@ fn resolveCargoManifestPath(allocator: std.mem.Allocator, cwd: std.fs.Dir, path:
     return try std.fs.path.join(allocator, &[_][]const u8{ path, "Cargo.toml" });
 }
 
+fn getRemapPrefix(allocator: std.mem.Allocator, cwd: std.fs.Dir) !?[]const u8 {
+    return cwd.realpathAlloc(allocator, ".") catch null;
+}
+
 fn printToolchainHints(allocator: std.mem.Allocator, stdout: anytype, version: []const u8) !void {
     const rel_path = core.toolchain_manager.zigRelPathForVersion(allocator, version) catch null;
     if (rel_path) |path| {
@@ -305,39 +351,4 @@ fn printToolchainHints(allocator: std.mem.Allocator, stdout: anytype, version: [
         defer allocator.free(path);
         try stdout.print(">> Global path: {s}\n", .{path});
     }
-}
-
-fn parserErrorMessage(err: anyerror) []const u8 {
-    return switch (err) {
-        error.MissingArgument => "Missing argument after keyword.",
-        error.UnknownCommand => "Unknown command.",
-        error.InvalidUseSpec => "Invalid USE spec (expected name:version).",
-        error.InvalidStrategy => "Invalid USE strategy (static|dynamic|embed).",
-        error.InvalidPackFormat => "Invalid PACK format (tar.gz|zip).",
-        error.InvalidBootstrapSpec => "Invalid BOOTSTRAP spec (expected zig:<version>, rust:<version>, or go:<version>).",
-        error.InvalidProjectType => "Invalid PROJECT type.",
-        else => @errorName(err),
-    };
-}
-
-fn formatCaretLine(allocator: std.mem.Allocator, column: usize) ![]const u8 {
-    const caret_column = if (column == 0) 1 else column;
-    const prefix_len = caret_column - 1;
-    var buf = try allocator.alloc(u8, prefix_len + 1);
-    @memset(buf[0..prefix_len], ' ');
-    buf[prefix_len] = '^';
-    return buf;
-}
-
-test "parser error messages" {
-    try std.testing.expectEqualStrings("Missing argument after keyword.", parserErrorMessage(error.MissingArgument));
-    try std.testing.expectEqualStrings("Invalid USE spec (expected name:version).", parserErrorMessage(error.InvalidUseSpec));
-    try std.testing.expectEqualStrings("Unknown command.", parserErrorMessage(error.UnknownCommand));
-}
-
-test "caret formatting" {
-    var gpa = std.testing.allocator;
-    const caret = try formatCaretLine(gpa, 5);
-    defer gpa.free(caret);
-    try std.testing.expectEqualStrings("    ^", caret);
 }

@@ -29,7 +29,9 @@ pub const PackOptions = struct {
 };
 
 pub const BootstrapOptions = struct {
-    tool: enum { Zig, Rust, Go },
+    pub const Tool = enum { Zig, Rust, Go };
+
+    tool: Tool,
     version: []const u8,
 };
 
@@ -310,7 +312,7 @@ fn parseProjectKind(raw: []const u8) ?ProjectKind {
     return null;
 }
 
-fn parseBootstrapTool(raw: []const u8) ?BootstrapOptions.tool {
+fn parseBootstrapTool(raw: []const u8) ?BootstrapOptions.Tool {
     if (std.ascii.eqlIgnoreCase(raw, "zig")) return .Zig;
     if (std.ascii.eqlIgnoreCase(raw, "rust")) return .Rust;
     if (std.ascii.eqlIgnoreCase(raw, "go")) return .Go;
