@@ -70,6 +70,20 @@ pub fn buildRustArgs(
         try args.argv.appendSlice(allocator, &[_][]const u8{ "-C", "link-arg=-static" });
     }
 
+    if (options.lib_dirs.len != 0) {
+        for (options.lib_dirs) |dir| {
+            try args.argv.append(allocator, "-L");
+            try args.argv.append(allocator, dir);
+        }
+    }
+
+    if (options.link_libs.len != 0) {
+        for (options.link_libs) |lib| {
+            try args.argv.append(allocator, "-l");
+            try args.argv.append(allocator, lib);
+        }
+    }
+
     if (options.env.target) |target| {
         const resolved = try target_builder.resolveTarget(allocator, target, options.env.kernel_version);
         if (resolved.owned) |value| try args.owned.append(allocator, value);
@@ -190,11 +204,33 @@ fn buildRustFlags(
         try parts.append(allocator, sysroot_arg);
     }
 
+    if (options.lib_dirs.len != 0) {
+        for (options.lib_dirs) |dir| {
+            const lib_arg = try std.fmt.allocPrint(allocator, "-L {s}", .{dir});
+            try owned.append(allocator, lib_arg);
+            try parts.append(allocator, lib_arg);
+        }
+    }
+
+    if (options.link_libs.len != 0) {
+        for (options.link_libs) |lib| {
+            const lib_arg = try std.fmt.allocPrint(allocator, "-l {s}", .{lib});
+            try owned.append(allocator, lib_arg);
+            try parts.append(allocator, lib_arg);
+        }
+    }
+
     if (remap_prefix) |prefix| {
         const mapping = try std.fmt.allocPrint(allocator, "{s}={s}", .{ prefix, remap_dest });
         try owned.append(allocator, mapping);
         try parts.append(allocator, "--remap-path-prefix");
         try parts.append(allocator, mapping);
+    }
+
+    if (options.rustflags_extra.len != 0) {
+        for (options.rustflags_extra) |flag| {
+            try parts.append(allocator, flag);
+        }
     }
 
     return try std.mem.join(allocator, " ", parts.items);

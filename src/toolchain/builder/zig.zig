@@ -15,6 +15,11 @@ pub fn buildZigArgs(
         options.zig_path,
         zig_mode,
         source_path,
+    });
+    if (options.extra_sources.len != 0) {
+        try args.argv.appendSlice(allocator, options.extra_sources);
+    }
+    try args.argv.appendSlice(allocator, &[_][]const u8{
         "-o",
         options.output_name,
     });
@@ -30,6 +35,28 @@ pub fn buildZigArgs(
     if (options.env.sysroot) |sysroot| {
         try args.argv.append(allocator, "--sysroot");
         try args.argv.append(allocator, sysroot);
+    }
+
+    if (options.include_dirs.len != 0) {
+        for (options.include_dirs) |dir| {
+            try args.argv.append(allocator, "-I");
+            try args.argv.append(allocator, dir);
+        }
+    }
+
+    if (options.lib_dirs.len != 0) {
+        for (options.lib_dirs) |dir| {
+            try args.argv.append(allocator, "-L");
+            try args.argv.append(allocator, dir);
+        }
+    }
+
+    if (options.link_libs.len != 0) {
+        for (options.link_libs) |lib| {
+            const arg = try std.fmt.allocPrint(allocator, "-l{s}", .{lib});
+            try args.owned.append(allocator, arg);
+            try args.argv.append(allocator, arg);
+        }
     }
 
     if (options.extra_args.len != 0) {
