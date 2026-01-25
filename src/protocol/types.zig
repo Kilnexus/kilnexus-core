@@ -18,3 +18,14 @@ pub const TargetSpec = struct {
     target: CrossTarget,
     sysroot: ?SysrootSpec = null,
 };
+
+pub const TargetsDirective = struct {
+    targets: []const []const u8,
+    mode: enum { Include, Exclude },
+};
+
+pub const BuildMode = enum {
+    Sequential,
+    Parallel,
+    Auto,
+};
