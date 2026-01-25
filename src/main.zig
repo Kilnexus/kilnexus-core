@@ -1,6 +1,7 @@
 const std = @import("std");
 const core = @import("root.zig");
 const manifest_handler = @import("cli/manifest_handler.zig");
+const paths_migration = @import("paths/migration.zig");
 
 pub fn main() !void {
     var stdout_buffer: [32 * 1024]u8 = undefined;
@@ -14,6 +15,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     var cwd = std.fs.cwd();
+    try paths_migration.warnLegacyProjectDir(cwd, stdout);
     try core.toolchain_manager.ensureProjectCache(cwd);
     const has_knxfile = if (cwd.access("Knxfile", .{})) |_| true else |err| switch (err) {
         error.FileNotFound => false,

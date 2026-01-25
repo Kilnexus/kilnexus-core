@@ -1,4 +1,7 @@
-/zig-out
-/.zig-cache
-/.knx
-/.kilnexus
+/.knx/
+!/.knx/build-manifest.json
+/kilnexus-out/
+/.kilnexus/
+
+/zig-out/
+/.zig-cache/

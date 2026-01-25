@@ -2,6 +2,7 @@ const std = @import("std");
 const core = @import("../root.zig");
 const common = @import("common.zig");
 const build_types = @import("build_types.zig");
+const paths_config = @import("../paths/config.zig");
 
 pub fn verifyStaticLinking(stdout: anytype, output_name: []const u8) !void {
     core.toolchain_static.verifyNoSharedDeps(output_name) catch |err| {
@@ -51,7 +52,7 @@ pub fn verifyReproducibility(
     };
     try core.reproducibility_verifier.generateBuildManifest(allocator, manifest_inputs);
     try common.ensureReproDir(cwd);
-    const repro_path = try std.fs.path.join(allocator, &[_][]const u8{ ".knx", "repro", output_name });
+    const repro_path = try paths_config.projectPath(allocator, &[_][]const u8{ "repro", output_name });
     defer allocator.free(repro_path);
     if (common.exists(cwd, repro_path)) {
         const matches = try core.reproducibility_verifier.compareBinaries(output_name, repro_path);

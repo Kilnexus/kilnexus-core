@@ -2,6 +2,7 @@ const std = @import("std");
 const manifest_types = @import("manifest_types.zig");
 const manifest_builder = @import("manifest_builder.zig");
 const hash_utils = @import("hash_utils.zig");
+const paths_config = @import("../paths/config.zig");
 
 pub const BuildManifest = manifest_types.BuildManifest;
 pub const BuildManifestInputs = manifest_types.BuildManifestInputs;
@@ -26,12 +27,16 @@ pub fn generateBuildManifest(allocator: std.mem.Allocator, inputs: BuildManifest
     const manifest = try manifest_builder.buildManifestFromInputs(allocator, inputs);
     defer freeManifest(allocator, manifest);
 
-    std.fs.cwd().makePath(".knx") catch |err| switch (err) {
+    const project_dir = try paths_config.projectPath(allocator, &[_][]const u8{});
+    defer allocator.free(project_dir);
+    std.fs.cwd().makePath(project_dir) catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => return err,
     };
 
-    var file = try std.fs.cwd().createFile(".knx/build-manifest.json", .{ .truncate = true });
+    const manifest_path = try paths_config.projectPath(allocator, &[_][]const u8{ "build-manifest.json" });
+    defer allocator.free(manifest_path);
+    var file = try std.fs.cwd().createFile(manifest_path, .{ .truncate = true });
     defer file.close();
 
     var writer_buffer: [32 * 1024]u8 = undefined;

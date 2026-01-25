@@ -2,6 +2,7 @@ const std = @import("std");
 const build = @import("build.zig");
 const common = @import("common.zig");
 const download = @import("download.zig");
+const paths_config = @import("../../paths/config.zig");
 
 pub const SeedSpec = struct {
     version: []const u8,
@@ -30,8 +31,7 @@ pub fn buildZigSeed(spec: SeedSpec) ![]const u8 {
 }
 
 fn seedRootFor(version: []const u8) ![]const u8 {
-    return std.fs.path.join(std.heap.page_allocator, &[_][]const u8{
-        ".knx",
+    return paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{
         "toolchains",
         "zig-seed",
         version,

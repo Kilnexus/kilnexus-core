@@ -1,5 +1,6 @@
 const std = @import("std");
 const core = @import("../root.zig");
+const paths_config = @import("../paths/config.zig");
 
 pub const RustEmbed = struct {
     alias: []const u8,
@@ -20,7 +21,8 @@ pub fn generateCEmbed(
     alias: []const u8,
     owned: *std.ArrayList([]const u8),
 ) !EmbedResult {
-    const gen_dir = ".knx/gen";
+    const gen_dir = try paths_config.projectPath(allocator, &[_][]const u8{ "gen" });
+    try owned.append(allocator, gen_dir);
     const safe_alias = try sanitizeIdentifier(allocator, alias);
     defer allocator.free(safe_alias);
     const c_name = try std.fmt.allocPrint(allocator, "{s}_embed.c", .{safe_alias});
@@ -46,14 +48,18 @@ pub fn generateCEmbed(
     try c_writer.interface.print("#include \"{s}\"\n", .{h_name});
 
     var rust_embed: ?RustEmbed = null;
-    const rust_path = try std.fmt.allocPrint(allocator, ".knx/gen/{s}_embed.rs", .{safe_alias});
+    const rust_name = try std.fmt.allocPrint(allocator, "{s}_embed.rs", .{safe_alias});
+    try owned.append(allocator, rust_name);
+    const rust_path = try std.fs.path.join(allocator, &[_][]const u8{ gen_dir, rust_name });
     try owned.append(allocator, rust_path);
     var rust_file = try cwd.createFile(rust_path, .{ .truncate = true });
     defer rust_file.close();
     var rust_buf: [32 * 1024]u8 = undefined;
     var rust_writer = rust_file.writer(&rust_buf);
 
-    const zig_path = try std.fmt.allocPrint(allocator, ".knx/gen/{s}.zig", .{safe_alias});
+    const zig_name = try std.fmt.allocPrint(allocator, "{s}.zig", .{safe_alias});
+    try owned.append(allocator, zig_name);
+    const zig_path = try std.fs.path.join(allocator, &[_][]const u8{ gen_dir, zig_name });
     try owned.append(allocator, zig_path);
     var zig_file = try cwd.createFile(zig_path, .{ .truncate = true });
     defer zig_file.close();
@@ -101,7 +107,11 @@ pub fn generateCEmbed(
     rust_embed = .{
         .alias = rust_alias,
         .rs_path = rust_path,
-        .rlib_path = try std.fmt.allocPrint(allocator, ".knx/gen/{s}_embed.rlib", .{safe_alias}),
+        .rlib_path = blk: {
+            const rlib_name = try std.fmt.allocPrint(allocator, "{s}_embed.rlib", .{safe_alias});
+            try owned.append(allocator, rlib_name);
+            break :blk try std.fs.path.join(allocator, &[_][]const u8{ gen_dir, rlib_name });
+        },
     };
     try owned.append(allocator, rust_embed.?.rlib_path);
 

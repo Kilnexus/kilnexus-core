@@ -1,6 +1,7 @@
 const std = @import("std");
 const core = @import("../root.zig");
 const common = @import("common.zig");
+const paths_config = @import("../paths/config.zig");
 
 pub const DepResolve = struct {
     root: []const u8,
@@ -10,11 +11,15 @@ pub const DepResolve = struct {
 };
 
 pub fn ensureDepsDirs(cwd: std.fs.Dir) !void {
-    cwd.makePath(".knx/deps") catch |err| switch (err) {
+    const deps_dir = try paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{ "deps" });
+    defer std.heap.page_allocator.free(deps_dir);
+    cwd.makePath(deps_dir) catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => return err,
     };
-    cwd.makePath(".knx/gen") catch |err| switch (err) {
+    const gen_dir = try paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{ "gen" });
+    defer std.heap.page_allocator.free(gen_dir);
+    cwd.makePath(gen_dir) catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => return err,
     };
@@ -27,7 +32,7 @@ pub fn ensureDependency(
     dep: common.UseSpec,
     owned: *std.ArrayList([]const u8),
 ) !DepResolve {
-    const dep_parent = try std.fs.path.join(allocator, &[_][]const u8{ ".knx", "deps", dep.name });
+    const dep_parent = try paths_config.projectPath(allocator, &[_][]const u8{ "deps", dep.name });
     try owned.append(allocator, dep_parent);
     const dep_root = try std.fs.path.join(allocator, &[_][]const u8{ dep_parent, dep.version });
     try owned.append(allocator, dep_root);

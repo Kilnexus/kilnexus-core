@@ -7,6 +7,7 @@ const toolchain = @import("toolchain_resolver.zig");
 const builder = @import("build_executor.zig");
 const manifest_types = @import("manifest_types.zig");
 const manifest_parser = @import("manifest_parser.zig");
+const paths_config = @import("../paths/config.zig");
 
 pub const Manifest = manifest_types.Manifest;
 
@@ -99,7 +100,7 @@ pub fn handle(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, ma
             const spec = manifest.bootstrap_sources.musl.?;
             const version = spec.version;
             try core.toolchain_source_builder.buildMuslFromSource(version, spec.sha256);
-            const root = try std.fs.path.join(allocator, &[_][]const u8{ ".knx", "toolchains", "musl", version });
+            const root = try paths_config.projectPath(allocator, &[_][]const u8{ "toolchains", "musl", version });
             try owned.append(allocator, root);
             static_libc_root = root;
             if (try dependency.resolveOptionalChild(allocator, cwd, root, "include", &owned)) |inc| try include_dirs.append(allocator, inc);
@@ -141,7 +142,8 @@ pub fn handle(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, ma
     const output_name = manifest.project_name orelse "Kilnexus-out";
     var virtual_root = manifest.virtual_root;
     if (manifest.sandbox_build and virtual_root == null) {
-        const sandbox_root = ".knx/sandbox";
+        const sandbox_root = try paths_config.projectPath(allocator, &[_][]const u8{ "sandbox" });
+        try owned.append(allocator, sandbox_root);
         try cwd.makePath(sandbox_root);
         virtual_root = sandbox_root;
     }

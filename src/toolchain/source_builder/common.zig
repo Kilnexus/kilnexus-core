@@ -1,4 +1,5 @@
 const std = @import("std");
+const paths_config = @import("../../paths/config.zig");
 
 pub const SourceTool = enum {
     Zig,
@@ -33,8 +34,7 @@ pub fn sourceRootFor(tool: SourceTool, version: []const u8) ![]const u8 {
     if (std.process.getEnvVarOwned(std.heap.page_allocator, env_key)) |value| {
         return value;
     } else |_| {}
-    return std.fs.path.join(std.heap.page_allocator, &[_][]const u8{
-        ".knx",
+    return paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{
         "sources",
         toolName(tool),
         version,
@@ -54,8 +54,7 @@ pub fn buildDirFor(tool: SourceTool, source_root: []const u8, fallback: []const 
 }
 
 pub fn muslInstallDirRel(version: []const u8) ![]const u8 {
-    return std.fs.path.join(std.heap.page_allocator, &[_][]const u8{
-        ".knx",
+    return paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{
         "toolchains",
         "musl",
         version,
