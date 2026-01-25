@@ -4,6 +4,25 @@ const Ed25519 = std.crypto.sign.Ed25519;
 const Blake2b512 = std.crypto.hash.blake2.Blake2b512;
 
 pub const zig_public_key_b64 = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U";
+pub const rust_public_key_b64: ?[]const u8 = null;
+pub const musl_public_key_b64: ?[]const u8 = null;
+pub const go_public_key_b64: ?[]const u8 = null;
+
+pub const ToolType = enum {
+    Zig,
+    Rust,
+    Musl,
+    Go,
+};
+
+pub fn getPublicKeyForTool(tool: ToolType) ?[]const u8 {
+    return switch (tool) {
+        .Zig => zig_public_key_b64,
+        .Rust => rust_public_key_b64,
+        .Musl => musl_public_key_b64,
+        .Go => go_public_key_b64,
+    };
+}
 
 pub fn verifyFileSignature(
     allocator: std.mem.Allocator,

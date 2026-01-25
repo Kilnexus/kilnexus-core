@@ -181,6 +181,7 @@ pub fn handle(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, ma
         .path = path,
         .output_name = output_name,
         .project_name = manifest.project_name,
+        .knxfile_path = manifest_name,
         .env = env,
         .cross_target = manifest.target,
         .include_dirs = include_dirs.items,
@@ -270,7 +271,21 @@ fn parseManifest(
                 .Musl => manifest.bootstrap_sources.musl = .{ .version = boot.version, .sha256 = boot.sha256 },
             },
             .BootstrapSeed => |boot| {
-                manifest.bootstrap_seed = .{ .version = boot.version, .sha256 = boot.sha256 };
+                const existing_command = if (manifest.bootstrap_seed) |seed| seed.command else null;
+                manifest.bootstrap_seed = .{
+                    .version = boot.version,
+                    .sha256 = boot.sha256,
+                    .command = existing_command,
+                };
+                if (manifest.bootstrap_versions.zig == null) manifest.bootstrap_versions.zig = boot.version;
+            },
+            .BootstrapSeedCommand => |boot| {
+                const existing_sha = if (manifest.bootstrap_seed) |seed| seed.sha256 else null;
+                manifest.bootstrap_seed = .{
+                    .version = boot.version,
+                    .sha256 = existing_sha,
+                    .command = boot.command,
+                };
                 if (manifest.bootstrap_versions.zig == null) manifest.bootstrap_versions.zig = boot.version;
             },
             .Use => |spec| try manifest.uses.append(allocator, .{

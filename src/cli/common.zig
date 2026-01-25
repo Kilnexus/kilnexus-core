@@ -22,6 +22,7 @@ pub const BootstrapSourceSpec = struct {
 pub const BootstrapSeedSpec = struct {
     version: []const u8,
     sha256: ?[]const u8 = null,
+    command: ?[]const u8 = null,
 };
 
 pub const BootstrapSourceVersions = struct {

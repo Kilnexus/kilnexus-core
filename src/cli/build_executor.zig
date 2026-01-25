@@ -12,6 +12,7 @@ pub const BuildInputs = struct {
     path: []const u8,
     output_name: []const u8,
     project_name: ?[]const u8,
+    knxfile_path: ?[]const u8,
     env: core.toolchain_common.VirtualEnv,
     cross_target: ?core.toolchain_cross.target.CrossTarget,
     include_dirs: []const []const u8,
@@ -159,7 +160,7 @@ pub fn executeBuild(
     try stdout.print(">> Build complete: {s}\n", .{inputs.output_name});
     try verifyStaticLinking(stdout, inputs.output_name);
     if (inputs.verify_reproducible) {
-        try verifyReproducibility(allocator, cwd, stdout, inputs.output_name);
+        try verifyReproducibility(allocator, cwd, stdout, inputs.output_name, inputs);
     }
     if (inputs.pack_format) |format| {
         try packOutput(allocator, cwd, stdout, inputs.output_name, inputs.project_name, format);
@@ -400,8 +401,31 @@ fn verifyReproducibility(
     cwd: std.fs.Dir,
     stdout: anytype,
     output_name: []const u8,
+    inputs: BuildInputs,
 ) !void {
-    try core.reproducibility_verifier.generateBuildManifest();
+    const manifest_inputs = core.reproducibility_verifier.BuildManifestInputs{
+        .timestamp = @intCast(std.time.timestamp()),
+        .output_name = output_name,
+        .build_path = inputs.path,
+        .project_name = inputs.project_name,
+        .knxfile_path = inputs.knxfile_path,
+        .cross_target = inputs.cross_target,
+        .env = inputs.env,
+        .deterministic_level = inputs.deterministic_level,
+        .isolation_level = inputs.isolation_level,
+        .static_libc = inputs.static_libc_enabled,
+        .remap_prefix = inputs.remap_prefix,
+        .zig_version = inputs.zig_version,
+        .rust_version = inputs.rust_version,
+        .zig_source = inputs.bootstrap_sources.zig != null,
+        .rust_source = inputs.bootstrap_sources.rust != null,
+        .bootstrap_seed = if (inputs.bootstrap_seed) |seed| core.reproducibility_verifier.BootstrapSeedInfo{
+            .version = seed.version,
+            .sha256 = seed.sha256,
+        } else null,
+        .extra_sources = inputs.extra_sources,
+    };
+    try core.reproducibility_verifier.generateBuildManifest(allocator, manifest_inputs);
     try common.ensureReproDir(cwd);
     const repro_path = try std.fs.path.join(allocator, &[_][]const u8{ ".knx", "repro", output_name });
     defer allocator.free(repro_path);

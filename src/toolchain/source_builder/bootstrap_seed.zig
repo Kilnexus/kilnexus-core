@@ -6,6 +6,7 @@ const download = @import("download.zig");
 pub const SeedSpec = struct {
     version: []const u8,
     sha256: ?[]const u8 = null,
+    command: ?[]const u8 = null,
 };
 
 pub fn buildZigSeed(spec: SeedSpec) ![]const u8 {
@@ -20,7 +21,7 @@ pub fn buildZigSeed(spec: SeedSpec) ![]const u8 {
     if (common.fileExists(seed_zig)) return seed_zig;
 
     try common.ensureDir(seed_root);
-    try runBootstrap(source_root);
+    try runBootstrap(source_root, spec.command);
 
     const built_zig = try findSeedZig(allocator, source_root);
     defer allocator.free(built_zig);
@@ -43,18 +44,26 @@ fn seedZigPath(allocator: std.mem.Allocator, seed_root: []const u8) ![]const u8 
     return std.fs.path.join(allocator, &[_][]const u8{ seed_root, "bin", exe.value });
 }
 
-fn runBootstrap(source_root: []const u8) !void {
+fn runBootstrap(source_root: []const u8, command: ?[]const u8) !void {
     const allocator = std.heap.page_allocator;
-    const cmd = try bootstrapCommand(allocator, source_root);
+    const cmd = try bootstrapCommand(allocator, source_root, command);
     defer allocator.free(cmd);
     const args = &[_][]const u8{ cmd };
     try build.runCommand(allocator, source_root, args);
 }
 
-fn bootstrapCommand(allocator: std.mem.Allocator, source_root: []const u8) ![]const u8 {
-    if (std.process.getEnvVarOwned(allocator, "KILNEXUS_ZIG_BOOTSTRAP_SEED_CMD")) |value| {
-        return value;
-    } else |_| {}
+fn bootstrapCommand(
+    allocator: std.mem.Allocator,
+    source_root: []const u8,
+    command: ?[]const u8,
+) ![]const u8 {
+    if (command) |relative| {
+        if (!isSafeRelativePath(relative)) return error.InvalidBootstrapSeedCommand;
+        const path = try std.fs.path.join(allocator, &[_][]const u8{ source_root, relative });
+        if (common.fileExists(path)) return path;
+        allocator.free(path);
+        return error.BootstrapSeedMissingScript;
+    }
 
     const candidates = &[_][]const u8{
         "bootstrap",
@@ -68,6 +77,15 @@ fn bootstrapCommand(allocator: std.mem.Allocator, source_root: []const u8) ![]co
     }
 
     return error.BootstrapSeedMissingScript;
+}
+
+fn isSafeRelativePath(path: []const u8) bool {
+    if (std.fs.path.isAbsolute(path)) return false;
+    var it = std.mem.splitAny(u8, path, "/\\");
+    while (it.next()) |part| {
+        if (std.mem.eql(u8, part, "..")) return false;
+    }
+    return true;
 }
 
 fn findSeedZig(allocator: std.mem.Allocator, source_root: []const u8) ![]const u8 {

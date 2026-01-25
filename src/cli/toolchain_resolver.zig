@@ -27,6 +27,7 @@ pub fn resolveOrBootstrapZig(
             const seed = if (seed_spec) |spec| core.toolchain_source_builder.BootstrapSeedSpec{
                 .version = spec.version,
                 .sha256 = spec.sha256,
+                .command = spec.command,
             } else null;
             core.toolchain_source_builder.buildZigFromSource(version, source_spec.?.sha256, seed) catch |boot_err| {
                 try stdout.print("!! Source bootstrap failed: {s}\n", .{@errorName(boot_err)});

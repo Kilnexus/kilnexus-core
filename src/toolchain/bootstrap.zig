@@ -57,6 +57,16 @@ pub fn bootstrapRust(allocator: std.mem.Allocator, cwd: std.fs.Dir, version: []c
     defer allocator.free(archive_url);
 
     try downloadFile(allocator, archive_url, archive_path);
+    if (minisign.getPublicKeyForTool(.Rust)) |key| {
+        const sig_name = try std.fmt.allocPrint(allocator, "{s}.minisig", .{archive_name});
+        defer allocator.free(sig_name);
+        const sig_path = try std.fs.path.join(allocator, &[_][]const u8{ install_dir, sig_name });
+        defer allocator.free(sig_path);
+        const sig_url = try std.fmt.allocPrint(allocator, "{s}.minisig", .{archive_url});
+        defer allocator.free(sig_url);
+        try downloadFile(allocator, sig_url, sig_path);
+        try minisign.verifyFileSignatureWithKey(allocator, archive_path, sig_path, key);
+    }
     try extractArchive(allocator, archive_path, install_dir, 1);
 }
 
@@ -81,6 +91,16 @@ pub fn bootstrapGo(allocator: std.mem.Allocator, cwd: std.fs.Dir, version: []con
     defer allocator.free(archive_url);
 
     try downloadFile(allocator, archive_url, archive_path);
+    if (minisign.getPublicKeyForTool(.Go)) |key| {
+        const sig_name = try std.fmt.allocPrint(allocator, "{s}.minisig", .{archive_name});
+        defer allocator.free(sig_name);
+        const sig_path = try std.fs.path.join(allocator, &[_][]const u8{ install_dir, sig_name });
+        defer allocator.free(sig_path);
+        const sig_url = try std.fmt.allocPrint(allocator, "{s}.minisig", .{archive_url});
+        defer allocator.free(sig_url);
+        try downloadFile(allocator, sig_url, sig_path);
+        try minisign.verifyFileSignatureWithKey(allocator, archive_path, sig_path, key);
+    }
     try extractArchive(allocator, archive_path, install_dir, 0);
 }
 

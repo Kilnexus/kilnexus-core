@@ -10,6 +10,7 @@ pub fn parserErrorMessage(err: anyerror) []const u8 {
         error.InvalidBootstrapSpec => "Invalid BOOTSTRAP spec (expected zig:<version>, rust:<version>, or go:<version>).",
         error.InvalidBootstrapSourceSpec => "Invalid BOOTSTRAP_FROM_SOURCE spec (expected tool, version, optional sha256:...).",
         error.InvalidBootstrapSeedSpec => "Invalid BOOTSTRAP_SEED spec (expected zig <version> optional sha256:...).",
+        error.InvalidBootstrapSeedCommandSpec => "Invalid BOOTSTRAP_SEED_COMMAND spec (expected zig <version> <command>).",
         error.InvalidStaticLibcSpec => "Invalid STATIC_LIBC spec (expected name version).",
         error.InvalidDeterministicLevel => "Invalid DETERMINISTIC level (strict|standard|relaxed).",
         error.InvalidIsolationLevel => "Invalid ISOLATION level (full|minimal|none).",

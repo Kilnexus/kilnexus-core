@@ -17,6 +17,7 @@ pub const Command = union(enum) {
     Bootstrap: BootstrapOptions,
     BootstrapFromSource: BootstrapFromSourceOptions,
     BootstrapSeed: BootstrapSeedOptions,
+    BootstrapSeedCommand: BootstrapSeedCommandOptions,
     Pack: PackOptions,
     StaticLibc: StaticLibcOptions,
     VerifyReproducible: bool,
@@ -59,6 +60,12 @@ pub const BootstrapSeedOptions = struct {
     tool: Tool,
     version: []const u8,
     sha256: ?[]const u8,
+};
+
+pub const BootstrapSeedCommandOptions = struct {
+    tool: BootstrapSeedOptions.Tool,
+    version: []const u8,
+    command: []const u8,
 };
 
 pub const StaticLibcOptions = struct {
@@ -214,6 +221,15 @@ pub const KilnexusParser = struct {
                     return error.MissingArgument;
                 }
                 return parseBootstrapSeed(tokens, &self.error_column) catch |err| {
+                    if (self.error_column == 0) self.error_column = tokens[1].start + 1;
+                    return err;
+                };
+            } else if (std.ascii.eqlIgnoreCase(keyword, "BOOTSTRAP_SEED_COMMAND")) {
+                if (tokens.len < 4) {
+                    self.error_column = line.len + 1;
+                    return error.MissingArgument;
+                }
+                return parseBootstrapSeedCommand(tokens, &self.error_column) catch |err| {
                     if (self.error_column == 0) self.error_column = tokens[1].start + 1;
                     return err;
                 };
@@ -486,6 +502,33 @@ fn parseBootstrapSeed(tokens: []const tokenizer.Token, error_column: *usize) !Co
         .tool = tool,
         .version = version,
         .sha256 = sha256,
+    } };
+}
+
+fn parseBootstrapSeedCommand(tokens: []const tokenizer.Token, error_column: *usize) !Command {
+    if (tokens.len < 4) {
+        error_column.* = tokens[0].end + 1;
+        return error.MissingArgument;
+    }
+    const tool = parseBootstrapSeedTool(tokens[1].text) orelse {
+        error_column.* = tokens[1].start + 1;
+        return error.InvalidBootstrapSeedCommandSpec;
+    };
+    const version = tokens[2].text;
+    if (version.len == 0) {
+        error_column.* = tokens[2].start + 1;
+        return error.InvalidBootstrapSeedCommandSpec;
+    }
+    const command = tokens[3].text;
+    if (command.len == 0) {
+        error_column.* = tokens[3].start + 1;
+        return error.InvalidBootstrapSeedCommandSpec;
+    }
+
+    return Command{ .BootstrapSeedCommand = .{
+        .tool = tool,
+        .version = version,
+        .command = command,
     } };
 }
 

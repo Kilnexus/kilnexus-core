@@ -2,6 +2,7 @@ const std = @import("std");
 const archive = @import("../../archive.zig");
 const common = @import("common.zig");
 const extract = @import("extract.zig");
+const minisign = @import("../minisign.zig");
 const verify = @import("verify.zig");
 
 pub fn prepareSource(tool: common.SourceTool, version: []const u8, sha256: ?[]const u8) ![]const u8 {
@@ -23,9 +24,8 @@ pub fn prepareSource(tool: common.SourceTool, version: []const u8, sha256: ?[]co
     if (sha256) |expected| {
         try verifySha256(archive_path, expected);
     }
-    const public_key = try common.envOrNull(allocator, common.signatureKeyEnvKey(tool));
-    defer if (public_key) |value| allocator.free(value);
-    if (public_key != null) {
+    const public_key = minisign.getPublicKeyForTool(toolToMinisignType(tool));
+    if (public_key) |key| {
         const sig_name = try sourceSignatureName(tool, version, archive_name);
         defer allocator.free(sig_name);
         const sig_path = try std.fs.path.join(allocator, &[_][]const u8{ source_root, sig_name });
@@ -35,7 +35,9 @@ pub fn prepareSource(tool: common.SourceTool, version: []const u8, sha256: ?[]co
             defer allocator.free(sig_url);
             try archive.downloadFile(allocator, sig_url, sig_path);
         }
-        try verify.verifySha256WithSignature(archive_path, sig_path, public_key.?);
+        try verify.verifySha256WithSignature(archive_path, sig_path, key);
+    } else if (sha256 == null) {
+        return error.NoVerificationAvailable;
     }
 
     try extract.extractArchive(allocator, archive_path, source_root, 1);
@@ -139,6 +141,14 @@ fn signatureUrlEnvKey(tool: common.SourceTool) []const u8 {
         .Zig => "KILNEXUS_ZIG_SOURCE_SIG_URL",
         .Rust => "KILNEXUS_RUST_SOURCE_SIG_URL",
         .Musl => "KILNEXUS_MUSL_SOURCE_SIG_URL",
+    };
+}
+
+fn toolToMinisignType(tool: common.SourceTool) minisign.ToolType {
+    return switch (tool) {
+        .Zig => .Zig,
+        .Rust => .Rust,
+        .Musl => .Musl,
     };
 }
 

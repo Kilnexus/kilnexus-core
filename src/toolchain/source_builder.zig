@@ -10,6 +10,7 @@ const install = @import("source_builder/install.zig");
 pub const BootstrapSeedSpec = struct {
     version: []const u8,
     sha256: ?[]const u8 = null,
+    command: ?[]const u8 = null,
 };
 
 pub fn buildZigFromSource(
@@ -25,7 +26,11 @@ pub fn buildZigFromSource(
     var seed_path: ?[]const u8 = null;
     defer if (seed_path) |path| allocator.free(path);
     if (seed_spec) |spec| {
-        seed_path = try bootstrap_seed.buildZigSeed(.{ .version = spec.version, .sha256 = spec.sha256 });
+        seed_path = try bootstrap_seed.buildZigSeed(.{
+            .version = spec.version,
+            .sha256 = spec.sha256,
+            .command = spec.command,
+        });
     }
     try build.buildZig(source_root, seed_path);
     try verify.verifyStages(.Zig, build_dir);
