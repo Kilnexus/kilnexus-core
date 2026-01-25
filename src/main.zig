@@ -204,8 +204,9 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
     var static_libc_root: ?[]const u8 = null;
     if (manifest.static_libc) |libc| {
         if (std.ascii.eqlIgnoreCase(libc.name, "musl") and manifest.bootstrap_sources.musl != null) {
-            const version = manifest.bootstrap_sources.musl.?.version;
-            try core.toolchain_source_builder.buildMuslFromSource(version);
+            const spec = manifest.bootstrap_sources.musl.?;
+            const version = spec.version;
+            try core.toolchain_source_builder.buildMuslFromSource(version, spec.sha256);
             const root = try std.fs.path.join(allocator, &[_][]const u8{ ".knx", "toolchains", "musl", version });
             try owned.append(allocator, root);
             static_libc_root = root;
@@ -750,7 +751,7 @@ fn resolveOrBootstrapZig(
         if (err != error.ToolchainMissing) return err;
         if (source_spec != null) {
             try stdout.print(">> Zig toolchain missing. Bootstrapping from source...\n", .{});
-            core.toolchain_source_builder.buildZigFromSource(version) catch |boot_err| {
+            core.toolchain_source_builder.buildZigFromSource(version, source_spec.?.sha256) catch |boot_err| {
                 try stdout.print("!! Source bootstrap failed: {s}\n", .{@errorName(boot_err)});
                 try printToolchainHints(allocator, stdout, version);
                 return error.ToolchainMissing;
@@ -794,7 +795,7 @@ fn resolveOrBootstrapRust(
         if (err != error.ToolchainMissing) return err;
         if (source_spec != null) {
             try stdout.print(">> Rust toolchain missing. Bootstrapping from source...\n", .{});
-            core.toolchain_source_builder.buildRustFromSource(version) catch |boot_err| {
+            core.toolchain_source_builder.buildRustFromSource(version, source_spec.?.sha256) catch |boot_err| {
                 try stdout.print("!! Source bootstrap failed: {s}\n", .{@errorName(boot_err)});
                 return error.ToolchainMissing;
             };
@@ -813,7 +814,7 @@ fn resolveOrBootstrapRust(
         if (err != error.ToolchainMissing) return err;
         if (source_spec != null) {
             try stdout.print(">> Rust toolchain missing. Bootstrapping from source...\n", .{});
-            core.toolchain_source_builder.buildRustFromSource(version) catch |boot_err| {
+            core.toolchain_source_builder.buildRustFromSource(version, source_spec.?.sha256) catch |boot_err| {
                 try stdout.print("!! Source bootstrap failed: {s}\n", .{@errorName(boot_err)});
                 return error.ToolchainMissing;
             };
