@@ -69,6 +69,9 @@ pub fn buildRustArgs(
     if (options.static) {
         try args.argv.appendSlice(allocator, &[_][]const u8{ "-C", "link-arg=-static" });
     }
+    if (options.rust_crt_static) {
+        try args.argv.appendSlice(allocator, &[_][]const u8{ "-C", "target-feature=+crt-static" });
+    }
 
     if (options.lib_dirs.len != 0) {
         for (options.lib_dirs) |dir| {
@@ -189,6 +192,7 @@ fn buildRustFlags(
     try parts.append(allocator, "-C link-arg=cc");
 
     if (options.static) try parts.append(allocator, "-C link-arg=-static");
+    if (options.rust_crt_static) try parts.append(allocator, "-C target-feature=+crt-static");
 
     if (target_value) |target| {
         try parts.append(allocator, "-C link-arg=-target");

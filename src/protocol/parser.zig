@@ -10,7 +10,11 @@ pub const Command = union(enum) {
     Use: UseDependency,
     Build: ?[]const u8,
     Bootstrap: BootstrapOptions,
+    BootstrapFromSource: BootstrapFromSourceOptions,
     Pack: PackOptions,
+    StaticLibc: StaticLibcOptions,
+    VerifyReproducible: bool,
+    SandboxBuild: bool,
 };
 
 pub const UseDependency = struct {
@@ -32,6 +36,19 @@ pub const BootstrapOptions = struct {
     pub const Tool = enum { Zig, Rust, Go };
 
     tool: Tool,
+    version: []const u8,
+};
+
+pub const BootstrapFromSourceOptions = struct {
+    pub const Tool = enum { Zig, Rust, Musl };
+
+    tool: Tool,
+    version: []const u8,
+    sha256: ?[]const u8,
+};
+
+pub const StaticLibcOptions = struct {
+    name: []const u8,
     version: []const u8,
 };
 
@@ -154,6 +171,15 @@ pub const KilnexusParser = struct {
                     if (self.error_column == 0) self.error_column = tokens[1].start + 1;
                     return err;
                 };
+            } else if (isBootstrapFromSourceKeyword(keyword)) {
+                if (tokens.len < 2) {
+                    self.error_column = line.len + 1;
+                    return error.MissingArgument;
+                }
+                return parseBootstrapFromSource(tokens, &self.error_column) catch |err| {
+                    if (self.error_column == 0) self.error_column = tokens[1].start + 1;
+                    return err;
+                };
             } else if (std.ascii.eqlIgnoreCase(keyword, "PACK")) {
                 if (tokens.len < 2) {
                     self.error_column = line.len + 1;
@@ -163,6 +189,35 @@ pub const KilnexusParser = struct {
                     if (self.error_column == 0) self.error_column = tokens[1].start + 1;
                     return err;
                 };
+            } else if (std.ascii.eqlIgnoreCase(keyword, "STATIC_LIBC")) {
+                if (tokens.len < 3) {
+                    self.error_column = line.len + 1;
+                    return error.MissingArgument;
+                }
+                return parseStaticLibc(tokens, &self.error_column) catch |err| {
+                    if (self.error_column == 0) self.error_column = tokens[1].start + 1;
+                    return err;
+                };
+            } else if (std.ascii.eqlIgnoreCase(keyword, "VERIFY_REPRODUCIBLE")) {
+                if (tokens.len < 2) {
+                    self.error_column = line.len + 1;
+                    return error.MissingArgument;
+                }
+                const value = parseBool(tokens[1].text) orelse {
+                    self.error_column = tokens[1].start + 1;
+                    return error.InvalidBoolean;
+                };
+                return Command{ .VerifyReproducible = value };
+            } else if (std.ascii.eqlIgnoreCase(keyword, "SANDBOX_BUILD")) {
+                if (tokens.len < 2) {
+                    self.error_column = line.len + 1;
+                    return error.MissingArgument;
+                }
+                const value = parseBool(tokens[1].text) orelse {
+                    self.error_column = tokens[1].start + 1;
+                    return error.InvalidBoolean;
+                };
+                return Command{ .SandboxBuild = value };
             } else {
                 self.error_column = tokens[0].start + 1;
                 return error.UnknownCommand;
@@ -289,10 +344,73 @@ fn parseBootstrap(tokens: []const tokenizer.Token, error_column: *usize) !Comman
     return Command{ .Bootstrap = .{ .tool = tool, .version = version } };
 }
 
+fn parseBootstrapFromSource(tokens: []const tokenizer.Token, error_column: *usize) !Command {
+    const base = "BOOTSTRAP_FROM_SOURCE";
+    const keyword = tokens[0].text;
+    if (!startsWithIgnoreCase(keyword, base)) return error.InvalidBootstrapSourceSpec;
+
+    const suffix = keyword[base.len..];
+    var tool_text: []const u8 = undefined;
+    var version_index: usize = 1;
+    if (suffix.len != 0) {
+        tool_text = suffix;
+    } else {
+        if (tokens.len < 3) {
+            error_column.* = tokens[0].end + 1;
+            return error.MissingArgument;
+        }
+        tool_text = tokens[1].text;
+        version_index = 2;
+    }
+
+    if (tokens.len <= version_index) {
+        error_column.* = tokens[0].end + 1;
+        return error.MissingArgument;
+    }
+    const version = tokens[version_index].text;
+
+    const tool = parseSourceTool(tool_text) orelse {
+        error_column.* = tokens[0].start + 1;
+        return error.InvalidBootstrapSourceSpec;
+    };
+
+    var sha256: ?[]const u8 = null;
+    if (tokens.len > version_index + 1) {
+        sha256 = parseSha256(tokens[version_index + 1].text) orelse {
+            error_column.* = tokens[version_index + 1].start + 1;
+            return error.InvalidBootstrapSourceSpec;
+        };
+    }
+
+    return Command{ .BootstrapFromSource = .{
+        .tool = tool,
+        .version = version,
+        .sha256 = sha256,
+    } };
+}
+
+fn parseStaticLibc(tokens: []const tokenizer.Token, error_column: *usize) !Command {
+    if (tokens.len < 3) return error.MissingArgument;
+    const name = tokens[1].text;
+    const version = tokens[2].text;
+    if (name.len == 0 or version.len == 0) {
+        error_column.* = tokens[1].start + 1;
+        return error.InvalidStaticLibcSpec;
+    }
+    return Command{ .StaticLibc = .{ .name = name, .version = version } };
+}
+
 fn parseStrategy(raw: []const u8) ?UseDependency.Strategy {
     if (std.ascii.eqlIgnoreCase(raw, "static")) return .Static;
     if (std.ascii.eqlIgnoreCase(raw, "dynamic")) return .Dynamic;
     if (std.ascii.eqlIgnoreCase(raw, "embed")) return .Embed;
+    return null;
+}
+
+fn parseSourceTool(raw: []const u8) ?BootstrapFromSourceOptions.Tool {
+    if (std.ascii.eqlIgnoreCase(raw, "zig")) return .Zig;
+    if (std.ascii.eqlIgnoreCase(raw, "rust")) return .Rust;
+    if (std.ascii.eqlIgnoreCase(raw, "musl")) return .Musl;
     return null;
 }
 
@@ -317,6 +435,28 @@ fn parseBootstrapTool(raw: []const u8) ?BootstrapOptions.Tool {
     if (std.ascii.eqlIgnoreCase(raw, "rust")) return .Rust;
     if (std.ascii.eqlIgnoreCase(raw, "go")) return .Go;
     return null;
+}
+
+fn parseSha256(raw: []const u8) ?[]const u8 {
+    const prefix = "sha256:";
+    if (!startsWithIgnoreCase(raw, prefix)) return null;
+    if (raw.len <= prefix.len) return null;
+    return raw[prefix.len..];
+}
+
+fn parseBool(raw: []const u8) ?bool {
+    if (std.ascii.eqlIgnoreCase(raw, "true")) return true;
+    if (std.ascii.eqlIgnoreCase(raw, "false")) return false;
+    return null;
+}
+
+fn startsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
+    if (haystack.len < needle.len) return false;
+    return std.ascii.eqlIgnoreCase(haystack[0..needle.len], needle);
+}
+
+fn isBootstrapFromSourceKeyword(keyword: []const u8) bool {
+    return startsWithIgnoreCase(keyword, "BOOTSTRAP_FROM_SOURCE");
 }
 
 test "parser line and column reporting" {

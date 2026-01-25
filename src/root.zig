@@ -8,4 +8,7 @@ pub const toolchain_builder_rust = @import("toolchain/builder/rust.zig");
 pub const toolchain_executor = @import("toolchain/executor.zig");
 pub const toolchain_manager = @import("toolchain/manager.zig");
 pub const toolchain_bootstrap = @import("toolchain/bootstrap.zig");
+pub const toolchain_source_builder = @import("toolchain/source_builder.zig");
+pub const toolchain_static = @import("toolchain/static_verifier.zig");
 pub const archive = @import("archive.zig");
+pub const reproducibility_verifier = @import("reproducibility/verifier.zig");

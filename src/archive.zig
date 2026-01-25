@@ -35,6 +35,7 @@ pub fn downloadFile(allocator: std.mem.Allocator, url: []const u8, output_path: 
 }
 
 pub fn extractTarGz(allocator: std.mem.Allocator, archive_path: []const u8, install_dir: []const u8, strip_components: u8) !void {
+    _ = allocator;
     var archive = try std.fs.cwd().openFile(archive_path, .{});
     defer archive.close();
 
@@ -107,7 +108,7 @@ pub fn packZipSingleFile(
     var reader_buffer: [32 * 1024]u8 = undefined;
     var reader = input.reader(&reader_buffer);
     while (true) {
-        const amt = try reader.read(reader_buffer[0..]);
+        const amt = try reader.interface.readSliceShort(reader_buffer[0..]);
         if (amt == 0) break;
         crc.update(reader_buffer[0..amt]);
     }
@@ -139,7 +140,7 @@ pub fn packZipSingleFile(
     try out.interface.writeAll(entry_name);
 
     var file_reader = input.reader(&reader_buffer);
-    try out.interface.sendFileAll(&file_reader, .unlimited);
+    _ = try out.interface.sendFileAll(&file_reader, .unlimited);
 
     const central_dir_offset: u32 = @intCast(30 + entry_name.len + file_size);
     const central_dir_size: u32 = @intCast(46 + entry_name.len);
@@ -195,18 +196,18 @@ fn dosTimeFromEpoch(epoch_seconds: u64) u16 {
 }
 
 fn dosDateFromEpoch(epoch_seconds: u64) u16 {
-    const unix_epoch = std.time.epoch.EpochSeconds{ .secs = @as(i64, @intCast(epoch_seconds)) };
-    const date = unix_epoch.getUtcDate();
-    const year = @as(u16, @intCast(date.year));
-    const month = @as(u16, @intCast(date.month));
-    const day = @as(u16, @intCast(date.day));
+    const unix_epoch = std.time.epoch.EpochSeconds{ .secs = epoch_seconds };
+    const year_day = unix_epoch.getEpochDay().calculateYearDay();
+    const month_day = year_day.calculateMonthDay();
+    const year = year_day.year;
+    const month = @as(u16, @intCast(@intFromEnum(month_day.month) + 1));
+    const day = @as(u16, @intCast(month_day.day_index + 1));
     const dos_year = if (year < 1980) 0 else year - 1980;
     return @intCast((dos_year << 9) | (month << 5) | day);
 }
 
 const GzipStoredWriter = struct {
     out: *std.Io.Writer,
-    block_writer: std.compress.flate.BlockWriter,
     crc: std.hash.Crc32,
     size: u32,
     writer_buffer: [4096]u8,
@@ -222,7 +223,6 @@ const GzipStoredWriter = struct {
 
         var self = GzipStoredWriter{
             .out = out,
-            .block_writer = std.compress.flate.BlockWriter.init(out),
             .crc = std.hash.Crc32.init(),
             .size = 0,
             .writer_buffer = undefined,
@@ -238,12 +238,10 @@ const GzipStoredWriter = struct {
 
     pub fn finish(self: *GzipStoredWriter) !void {
         if (self.buffered > 0) {
-            try self.block_writer.storedBlock(self.buffer[0..self.buffered], true);
-            self.buffered = 0;
+            try self.flushBuffer(true);
         } else {
-            try self.block_writer.storedBlock("", true);
+            try self.writeStoredBlock("", true);
         }
-        try self.block_writer.flush();
 
         var footer: [8]u8 = undefined;
         std.mem.writeInt(u32, footer[0..4], self.crc.final(), .little);
@@ -291,9 +289,27 @@ const GzipStoredWriter = struct {
             self.buffered += chunk_len;
             remaining = remaining[chunk_len..];
             if (self.buffered == self.buffer.len) {
-                try self.block_writer.storedBlock(self.buffer[0..self.buffered], false);
-                self.buffered = 0;
+                try self.flushBuffer(false);
             }
+        }
+    }
+
+    fn flushBuffer(self: *GzipStoredWriter, final: bool) !void {
+        try self.writeStoredBlock(self.buffer[0..self.buffered], final);
+        self.buffered = 0;
+    }
+
+    fn writeStoredBlock(self: *GzipStoredWriter, data: []const u8, final: bool) !void {
+        const header: u8 = if (final) 0x01 else 0x00;
+        try self.out.writeAll(&[_]u8{header});
+        const len: u16 = @intCast(data.len);
+        const nlen: u16 = ~len;
+        var buf: [4]u8 = undefined;
+        std.mem.writeInt(u16, buf[0..2], len, .little);
+        std.mem.writeInt(u16, buf[2..4], nlen, .little);
+        try self.out.writeAll(&buf);
+        if (data.len > 0) {
+            try self.out.writeAll(data);
         }
     }
 };

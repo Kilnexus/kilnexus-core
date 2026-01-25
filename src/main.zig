@@ -47,6 +47,10 @@ const Manifest = struct {
     pack_format: ?core.protocol.PackOptions.Format = null,
     uses: std.ArrayList(UseSpec) = .empty,
     bootstrap_versions: BootstrapVersions = .{},
+    bootstrap_sources: BootstrapSourceVersions = .{},
+    static_libc: ?StaticLibcSpec = null,
+    verify_reproducible: bool = false,
+    sandbox_build: bool = false,
 
     fn deinit(self: *Manifest, allocator: std.mem.Allocator) void {
         self.uses.deinit(allocator);
@@ -102,6 +106,17 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
                 .Rust => manifest.bootstrap_versions.rust = boot.version,
                 .Go => manifest.bootstrap_versions.go = boot.version,
             },
+            .BootstrapFromSource => |boot| switch (boot.tool) {
+                .Zig => {
+                    manifest.bootstrap_sources.zig = .{ .version = boot.version, .sha256 = boot.sha256 };
+                    if (manifest.bootstrap_versions.zig == null) manifest.bootstrap_versions.zig = boot.version;
+                },
+                .Rust => {
+                    manifest.bootstrap_sources.rust = .{ .version = boot.version, .sha256 = boot.sha256 };
+                    if (manifest.bootstrap_versions.rust == null) manifest.bootstrap_versions.rust = boot.version;
+                },
+                .Musl => manifest.bootstrap_sources.musl = .{ .version = boot.version, .sha256 = boot.sha256 },
+            },
             .Use => |spec| try manifest.uses.append(allocator, .{
                 .name = spec.name,
                 .version = spec.version,
@@ -109,6 +124,9 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
                 .strategy = spec.strategy,
             }),
             .Pack => |pack| manifest.pack_format = pack.format,
+            .StaticLibc => |spec| manifest.static_libc = .{ .name = spec.name, .version = spec.version },
+            .VerifyReproducible => |value| manifest.verify_reproducible = value,
+            .SandboxBuild => |value| manifest.sandbox_build = value,
         }
     }
 
@@ -124,7 +142,7 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
     }
 
     if (manifest.project_kind) |kind| {
-        try bootstrapProjectToolchains(allocator, cwd, stdout, kind, manifest.bootstrap_versions);
+        try bootstrapProjectToolchains(allocator, cwd, stdout, kind, manifest.bootstrap_versions, manifest.bootstrap_sources);
     }
 
     try ensureDepsDirs(cwd);
@@ -154,7 +172,22 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
         if (dep.strategy != .Embed) {
             if (resolved.include_dir) |inc| try include_dirs.append(allocator, inc);
             if (resolved.lib_dir) |lib| try lib_dirs.append(allocator, lib);
-            try link_libs.append(allocator, dep.name);
+            if (dep.strategy == .Static and resolved.lib_dir != null) {
+                const static_libs = try core.toolchain_static.extractStaticLibs(resolved.lib_dir.?);
+                defer freeStaticLibs(static_libs);
+                if (static_libs.len != 0) {
+                    for (static_libs) |lib_path| {
+                        const name = std.fs.path.basename(lib_path);
+                        const arg = try std.fmt.allocPrint(allocator, ":{s}", .{name});
+                        try owned.append(allocator, arg);
+                        try link_libs.append(allocator, arg);
+                    }
+                } else {
+                    try link_libs.append(allocator, dep.name);
+                }
+            } else {
+                try link_libs.append(allocator, dep.name);
+            }
         } else {
             if (resolved.embed_dir) |embed_dir| {
                 const alias = dep.alias orelse dep.name;
@@ -168,16 +201,46 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
         }
     }
 
+    var static_libc_root: ?[]const u8 = null;
+    if (manifest.static_libc) |libc| {
+        if (std.ascii.eqlIgnoreCase(libc.name, "musl") and manifest.bootstrap_sources.musl != null) {
+            const version = manifest.bootstrap_sources.musl.?.version;
+            try core.toolchain_source_builder.buildMuslFromSource(version);
+            const root = try std.fs.path.join(allocator, &[_][]const u8{ ".knx", "toolchains", "musl", version });
+            try owned.append(allocator, root);
+            static_libc_root = root;
+            if (try resolveOptionalChild(allocator, cwd, root, "include", &owned)) |inc| try include_dirs.append(allocator, inc);
+            if (try resolveOptionalChild(allocator, cwd, root, "lib", &owned)) |lib| try lib_dirs.append(allocator, lib);
+        } else {
+            const resolved = try ensureDependency(allocator, cwd, stdout, .{
+                .name = libc.name,
+                .version = libc.version,
+                .alias = null,
+                .strategy = .Static,
+            }, &owned);
+            if (resolved.include_dir) |inc| try include_dirs.append(allocator, inc);
+            if (resolved.lib_dir) |lib| try lib_dirs.append(allocator, lib);
+            static_libc_root = resolved.root;
+        }
+        if (manifest.sysroot == null) manifest.sysroot = static_libc_root;
+    }
+
     const output_name = manifest.project_name orelse "Kilnexus-out";
+    var virtual_root = manifest.virtual_root;
+    if (manifest.sandbox_build and virtual_root == null) {
+        const sandbox_root = ".knx/sandbox";
+        try cwd.makePath(sandbox_root);
+        virtual_root = sandbox_root;
+    }
     const env = core.toolchain_common.VirtualEnv{
         .target = manifest.target,
         .kernel_version = manifest.kernel_version,
         .sysroot = manifest.sysroot,
-        .virtual_root = manifest.virtual_root,
+        .virtual_root = virtual_root,
     };
     if (std.mem.endsWith(u8, path, ".c")) {
         const zig_version = manifest.bootstrap_versions.zig orelse core.toolchain_manager.default_zig_version;
-        const zig_path = resolveOrBootstrapZig(allocator, cwd, stdout, zig_version) catch return;
+        const zig_path = resolveOrBootstrapZig(allocator, cwd, stdout, zig_version, manifest.bootstrap_sources.zig) catch return;
         defer allocator.free(zig_path);
         const options = core.toolchain_common.CompileOptions{
             .output_name = output_name,
@@ -197,7 +260,7 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
         try core.toolchain_executor.runWithEnvMap(allocator, cwd, args.argv.items, env, &env_map);
     } else if (std.mem.endsWith(u8, path, ".cpp") or std.mem.endsWith(u8, path, ".cc") or std.mem.endsWith(u8, path, ".cxx")) {
         const zig_version = manifest.bootstrap_versions.zig orelse core.toolchain_manager.default_zig_version;
-        const zig_path = resolveOrBootstrapZig(allocator, cwd, stdout, zig_version) catch return;
+        const zig_path = resolveOrBootstrapZig(allocator, cwd, stdout, zig_version, manifest.bootstrap_sources.zig) catch return;
         defer allocator.free(zig_path);
         const options = core.toolchain_common.CompileOptions{
             .output_name = output_name,
@@ -218,9 +281,9 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
     } else if (std.mem.endsWith(u8, path, ".rs")) {
         const zig_version = manifest.bootstrap_versions.zig orelse core.toolchain_manager.default_zig_version;
         const rust_version = manifest.bootstrap_versions.rust orelse core.toolchain_manager.default_rust_version;
-        const zig_path = resolveOrBootstrapZig(allocator, cwd, stdout, zig_version) catch return;
+        const zig_path = resolveOrBootstrapZig(allocator, cwd, stdout, zig_version, manifest.bootstrap_sources.zig) catch return;
         defer allocator.free(zig_path);
-        var rust_paths = resolveOrBootstrapRust(allocator, cwd, stdout, rust_version) catch return;
+        var rust_paths = resolveOrBootstrapRust(allocator, cwd, stdout, rust_version, manifest.bootstrap_sources.rust) catch return;
         defer rust_paths.deinit(allocator);
         try prepareRustEmbeds(allocator, cwd, rust_paths.rustc, rust_embeds.items, &rustc_extra_args, &rustflags_extra, &owned);
         const options = core.toolchain_common.CompileOptions{
@@ -228,6 +291,7 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
             .static = true,
             .zig_path = zig_path,
             .rustc_path = rust_paths.rustc,
+            .rust_crt_static = manifest.static_libc != null,
             .env = env,
             .lib_dirs = lib_dirs.items,
             .link_libs = link_libs.items,
@@ -244,9 +308,9 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
     } else if (std.mem.endsWith(u8, path, "Cargo.toml") or try containsCargoManifest(cwd, path)) {
         const zig_version = manifest.bootstrap_versions.zig orelse core.toolchain_manager.default_zig_version;
         const rust_version = manifest.bootstrap_versions.rust orelse core.toolchain_manager.default_rust_version;
-        const zig_path = resolveOrBootstrapZig(allocator, cwd, stdout, zig_version) catch return;
+        const zig_path = resolveOrBootstrapZig(allocator, cwd, stdout, zig_version, manifest.bootstrap_sources.zig) catch return;
         defer allocator.free(zig_path);
-        var rust_paths = resolveOrBootstrapRust(allocator, cwd, stdout, rust_version) catch return;
+        var rust_paths = resolveOrBootstrapRust(allocator, cwd, stdout, rust_version, manifest.bootstrap_sources.rust) catch return;
         defer rust_paths.deinit(allocator);
         try prepareRustEmbeds(allocator, cwd, rust_paths.rustc, rust_embeds.items, &rustc_extra_args, &rustflags_extra, &owned);
         const manifest_path = try resolveCargoManifestPath(allocator, cwd, path);
@@ -255,6 +319,7 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
             .zig_path = zig_path,
             .rustc_path = rust_paths.rustc,
             .cargo_path = rust_paths.cargo,
+            .rust_crt_static = manifest.static_libc != null,
             .env = env,
             .cargo_manifest_path = manifest_path,
             .lib_dirs = lib_dirs.items,
@@ -290,6 +355,39 @@ fn handleManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
 
     try stdout.print(">> Build complete: {s}\n", .{output_name});
 
+    core.toolchain_static.verifyNoSharedDeps(output_name) catch |err| {
+        switch (err) {
+            error.UnsupportedBinary,
+            error.UnsupportedEndianness,
+            => {
+                try stdout.print(">> Static verification skipped: unsupported binary format.\n", .{});
+            },
+            error.SharedDependenciesFound => {
+                try stdout.print("!! Static verification failed: shared dependencies detected.\n", .{});
+                return err;
+            },
+            else => return err,
+        }
+    };
+
+    if (manifest.verify_reproducible) {
+        try core.reproducibility_verifier.generateBuildManifest();
+        try ensureReproDir(cwd);
+        const repro_path = try std.fs.path.join(allocator, &[_][]const u8{ ".knx", "repro", output_name });
+        defer allocator.free(repro_path);
+        if (exists(cwd, repro_path)) {
+            const matches = try core.reproducibility_verifier.compareBinaries(output_name, repro_path);
+            if (!matches) {
+                try stdout.print("!! Reproducibility check failed: output differs from baseline.\n", .{});
+                return error.ReproducibleMismatch;
+            }
+            try stdout.print(">> Reproducibility check: OK\n", .{});
+        } else {
+            try copyFile(cwd, output_name, repro_path);
+            try stdout.print(">> Reproducibility baseline stored: {s}\n", .{repro_path});
+        }
+    }
+
     if (manifest.pack_format) |format| {
         try packOutput(allocator, cwd, stdout, output_name, manifest.project_name, format);
     }
@@ -309,6 +407,31 @@ fn ensureDepsDirs(cwd: std.fs.Dir) !void {
         error.PathAlreadyExists => {},
         else => return err,
     };
+}
+
+fn ensureReproDir(cwd: std.fs.Dir) !void {
+    cwd.makePath(".knx/repro") catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => return err,
+    };
+}
+
+fn copyFile(cwd: std.fs.Dir, src_path: []const u8, dst_path: []const u8) !void {
+    var src = try cwd.openFile(src_path, .{});
+    defer src.close();
+    var dst = try cwd.createFile(dst_path, .{ .truncate = true });
+    defer dst.close();
+    var buf: [32 * 1024]u8 = undefined;
+    while (true) {
+        const amt = try src.read(buf[0..]);
+        if (amt == 0) break;
+        try dst.writeAll(buf[0..amt]);
+    }
+}
+
+fn freeStaticLibs(libs: []const []const u8) void {
+    for (libs) |lib| std.heap.page_allocator.free(lib);
+    std.heap.page_allocator.free(libs);
 }
 
 const DepResolve = struct {
@@ -590,6 +713,22 @@ const BootstrapVersions = struct {
     go: ?[]const u8 = null,
 };
 
+const BootstrapSourceSpec = struct {
+    version: []const u8,
+    sha256: ?[]const u8 = null,
+};
+
+const BootstrapSourceVersions = struct {
+    zig: ?BootstrapSourceSpec = null,
+    rust: ?BootstrapSourceSpec = null,
+    musl: ?BootstrapSourceSpec = null,
+};
+
+const StaticLibcSpec = struct {
+    name: []const u8,
+    version: []const u8,
+};
+
 const RustPaths = struct {
     rustc: []const u8,
     cargo: []const u8,
@@ -600,9 +739,24 @@ const RustPaths = struct {
     }
 };
 
-fn resolveOrBootstrapZig(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, version: []const u8) ![]const u8 {
+fn resolveOrBootstrapZig(
+    allocator: std.mem.Allocator,
+    cwd: std.fs.Dir,
+    stdout: anytype,
+    version: []const u8,
+    source_spec: ?BootstrapSourceSpec,
+) ![]const u8 {
     return core.toolchain_manager.resolveZigPathForVersion(allocator, cwd, version) catch |err| {
         if (err != error.ToolchainMissing) return err;
+        if (source_spec != null) {
+            try stdout.print(">> Zig toolchain missing. Bootstrapping from source...\n", .{});
+            core.toolchain_source_builder.buildZigFromSource(version) catch |boot_err| {
+                try stdout.print("!! Source bootstrap failed: {s}\n", .{@errorName(boot_err)});
+                try printToolchainHints(allocator, stdout, version);
+                return error.ToolchainMissing;
+            };
+            return try core.toolchain_manager.resolveZigPathForVersion(allocator, cwd, version);
+        }
         try stdout.print(">> Zig toolchain missing. Bootstrapping...\n", .{});
         core.toolchain_bootstrap.bootstrapZig(allocator, cwd, version) catch |boot_err| {
             switch (boot_err) {
@@ -629,9 +783,23 @@ fn resolveOrBootstrapZig(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: 
     };
 }
 
-fn resolveOrBootstrapRust(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, version: []const u8) !RustPaths {
+fn resolveOrBootstrapRust(
+    allocator: std.mem.Allocator,
+    cwd: std.fs.Dir,
+    stdout: anytype,
+    version: []const u8,
+    source_spec: ?BootstrapSourceSpec,
+) !RustPaths {
     const rustc_path = core.toolchain_manager.resolveRustcPathForVersion(allocator, cwd, version) catch |err| blk: {
         if (err != error.ToolchainMissing) return err;
+        if (source_spec != null) {
+            try stdout.print(">> Rust toolchain missing. Bootstrapping from source...\n", .{});
+            core.toolchain_source_builder.buildRustFromSource(version) catch |boot_err| {
+                try stdout.print("!! Source bootstrap failed: {s}\n", .{@errorName(boot_err)});
+                return error.ToolchainMissing;
+            };
+            break :blk try core.toolchain_manager.resolveRustcPathForVersion(allocator, cwd, version);
+        }
         try stdout.print(">> Rust toolchain missing. Bootstrapping...\n", .{});
         core.toolchain_bootstrap.bootstrapRust(allocator, cwd, version) catch |boot_err| {
             try stdout.print("!! Bootstrap failed: {s}\n", .{@errorName(boot_err)});
@@ -643,6 +811,14 @@ fn resolveOrBootstrapRust(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout:
 
     const cargo_path = core.toolchain_manager.resolveCargoPathForVersion(allocator, cwd, version) catch |err| blk: {
         if (err != error.ToolchainMissing) return err;
+        if (source_spec != null) {
+            try stdout.print(">> Rust toolchain missing. Bootstrapping from source...\n", .{});
+            core.toolchain_source_builder.buildRustFromSource(version) catch |boot_err| {
+                try stdout.print("!! Source bootstrap failed: {s}\n", .{@errorName(boot_err)});
+                return error.ToolchainMissing;
+            };
+            break :blk try core.toolchain_manager.resolveCargoPathForVersion(allocator, cwd, version);
+        }
         try stdout.print(">> Rust toolchain missing. Bootstrapping...\n", .{});
         core.toolchain_bootstrap.bootstrapRust(allocator, cwd, version) catch |boot_err| {
             try stdout.print("!! Bootstrap failed: {s}\n", .{@errorName(boot_err)});
@@ -675,12 +851,25 @@ fn bootstrapProjectToolchains(
     stdout: anytype,
     project_kind: core.protocol.ProjectKind,
     versions: BootstrapVersions,
+    sources: BootstrapSourceVersions,
 ) !void {
     switch (project_kind) {
         .Rust => {
-            const zig_path = try resolveOrBootstrapZig(allocator, cwd, stdout, versions.zig orelse core.toolchain_manager.default_zig_version);
+            const zig_path = try resolveOrBootstrapZig(
+                allocator,
+                cwd,
+                stdout,
+                versions.zig orelse core.toolchain_manager.default_zig_version,
+                sources.zig,
+            );
             defer allocator.free(zig_path);
-            var rust_paths = try resolveOrBootstrapRust(allocator, cwd, stdout, versions.rust orelse core.toolchain_manager.default_rust_version);
+            var rust_paths = try resolveOrBootstrapRust(
+                allocator,
+                cwd,
+                stdout,
+                versions.rust orelse core.toolchain_manager.default_rust_version,
+                sources.rust,
+            );
             defer rust_paths.deinit(allocator);
         },
         .Go => {
@@ -688,7 +877,13 @@ fn bootstrapProjectToolchains(
             defer allocator.free(go_path);
         },
         .C, .Cpp, .Zig => {
-            const zig_path = try resolveOrBootstrapZig(allocator, cwd, stdout, versions.zig orelse core.toolchain_manager.default_zig_version);
+            const zig_path = try resolveOrBootstrapZig(
+                allocator,
+                cwd,
+                stdout,
+                versions.zig orelse core.toolchain_manager.default_zig_version,
+                sources.zig,
+            );
             defer allocator.free(zig_path);
         },
         .Python => {},

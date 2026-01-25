@@ -22,6 +22,7 @@ pub const CompileOptions = struct {
     extra_sources: []const []const u8 = &[_][]const u8{},
     rust_crate_type: ?[]const u8 = null,
     rust_edition: ?[]const u8 = null,
+    rust_crt_static: bool = false,
     rustflags_extra: []const []const u8 = &[_][]const u8{},
     cargo_manifest_path: ?[]const u8 = null,
     cargo_release: bool = false,
