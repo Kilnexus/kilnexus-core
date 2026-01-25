@@ -10,7 +10,16 @@ pub fn verifyFileSignature(
     file_path: []const u8,
     signature_path: []const u8,
 ) !void {
-    const pub_key = try parsePublicKey(allocator, zig_public_key_b64);
+    try verifyFileSignatureWithKey(allocator, file_path, signature_path, zig_public_key_b64);
+}
+
+pub fn verifyFileSignatureWithKey(
+    allocator: std.mem.Allocator,
+    file_path: []const u8,
+    signature_path: []const u8,
+    public_key_b64: []const u8,
+) !void {
+    const pub_key = try parsePublicKey(allocator, public_key_b64);
 
     const sig_data = try readSmallFile(allocator, signature_path, 64 * 1024);
     defer allocator.free(sig_data);

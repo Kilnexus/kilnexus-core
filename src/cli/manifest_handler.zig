@@ -18,6 +18,7 @@ pub const Manifest = struct {
     uses: std.ArrayList(common.UseSpec) = .empty,
     bootstrap_versions: common.BootstrapVersions = .{},
     bootstrap_sources: common.BootstrapSourceVersions = .{},
+    bootstrap_seed: ?common.BootstrapSeedSpec = null,
     static_libc: ?StaticLibcSpec = null,
     verify_reproducible: bool = false,
     sandbox_build: bool = false,
@@ -55,6 +56,7 @@ pub fn handle(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, ma
             kind,
             manifest.bootstrap_versions,
             manifest.bootstrap_sources,
+            manifest.bootstrap_seed,
         );
     }
 
@@ -169,6 +171,7 @@ pub fn handle(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, ma
         .zig_version = manifest.bootstrap_versions.zig orelse core.toolchain_manager.default_zig_version,
         .rust_version = manifest.bootstrap_versions.rust orelse core.toolchain_manager.default_rust_version,
         .bootstrap_sources = manifest.bootstrap_sources,
+        .bootstrap_seed = manifest.bootstrap_seed,
         .static_libc_enabled = manifest.static_libc != null,
         .verify_reproducible = manifest.verify_reproducible,
         .pack_format = manifest.pack_format,
@@ -234,6 +237,10 @@ fn parseManifest(
                     if (manifest.bootstrap_versions.rust == null) manifest.bootstrap_versions.rust = boot.version;
                 },
                 .Musl => manifest.bootstrap_sources.musl = .{ .version = boot.version, .sha256 = boot.sha256 },
+            },
+            .BootstrapSeed => |boot| {
+                manifest.bootstrap_seed = .{ .version = boot.version, .sha256 = boot.sha256 };
+                if (manifest.bootstrap_versions.zig == null) manifest.bootstrap_versions.zig = boot.version;
             },
             .Use => |spec| try manifest.uses.append(allocator, .{
                 .name = spec.name,

@@ -1,8 +1,13 @@
 const std = @import("std");
 const common = @import("common.zig");
 
-pub fn buildZig(source_root: []const u8) !void {
+pub fn buildZig(source_root: []const u8, bootstrap_path: ?[]const u8) !void {
     const allocator = std.heap.page_allocator;
+    if (bootstrap_path) |path| {
+        const args = &[_][]const u8{ path, "build", "-Doptimize=ReleaseFast" };
+        try runCommand(allocator, source_root, args);
+        return;
+    }
     const zig = try common.envOrDefault(allocator, "KILNEXUS_ZIG_BOOTSTRAP", "zig");
     defer if (zig.owned) allocator.free(zig.value);
     const args = &[_][]const u8{ zig.value, "build", "-Doptimize=ReleaseFast" };
@@ -13,7 +18,7 @@ pub fn buildRust(source_root: []const u8) !void {
     const allocator = std.heap.page_allocator;
     const python = try common.envOrDefault(allocator, "KILNEXUS_RUST_PYTHON", "python");
     defer if (python.owned) allocator.free(python.value);
-    const args = &[_][]const u8{ python.value, "x.py", "build", "--stage", "2" };
+    const args = &[_][]const u8{ python.value, "x.py", "build", "--stage", "3" };
     try runCommand(allocator, source_root, args);
 }
 

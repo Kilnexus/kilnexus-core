@@ -2,6 +2,7 @@ const std = @import("std");
 const archive = @import("../../archive.zig");
 const common = @import("common.zig");
 const extract = @import("extract.zig");
+const verify = @import("verify.zig");
 
 pub fn prepareSource(tool: common.SourceTool, version: []const u8, sha256: ?[]const u8) ![]const u8 {
     const allocator = std.heap.page_allocator;
@@ -21,6 +22,20 @@ pub fn prepareSource(tool: common.SourceTool, version: []const u8, sha256: ?[]co
     }
     if (sha256) |expected| {
         try verifySha256(archive_path, expected);
+    }
+    const public_key = try common.envOrNull(allocator, common.signatureKeyEnvKey(tool));
+    defer if (public_key) |value| allocator.free(value);
+    if (public_key != null) {
+        const sig_name = try sourceSignatureName(tool, version, archive_name);
+        defer allocator.free(sig_name);
+        const sig_path = try std.fs.path.join(allocator, &[_][]const u8{ source_root, sig_name });
+        defer allocator.free(sig_path);
+        if (!common.fileExists(sig_path)) {
+            const sig_url = try sourceSignatureUrl(tool, version, sig_name);
+            defer allocator.free(sig_url);
+            try archive.downloadFile(allocator, sig_url, sig_path);
+        }
+        try verify.verifySha256WithSignature(archive_path, sig_path, public_key.?);
     }
 
     try extract.extractArchive(allocator, archive_path, source_root, 1);
@@ -65,6 +80,37 @@ pub fn sourceDownloadUrl(tool: common.SourceTool, version: []const u8, archive_n
     });
 }
 
+pub fn sourceSignatureName(tool: common.SourceTool, version: []const u8, archive_name: []const u8) ![]const u8 {
+    _ = version;
+    const allocator = std.heap.page_allocator;
+    const env_key = signatureAssetEnvKey(tool);
+    if (std.process.getEnvVarOwned(allocator, env_key)) |value| {
+        return value;
+    } else |_| {}
+    return std.fmt.allocPrint(allocator, "{s}.minisig", .{archive_name});
+}
+
+pub fn sourceSignatureUrl(tool: common.SourceTool, version: []const u8, signature_name: []const u8) ![]const u8 {
+    const allocator = std.heap.page_allocator;
+    const env_key = signatureUrlEnvKey(tool);
+    if (std.process.getEnvVarOwned(allocator, env_key)) |value| {
+        return value;
+    } else |_| {}
+
+    const repo = try common.envOrDefault(allocator, common.repoEnvKey(tool), defaultRepo(tool));
+    defer if (repo.owned) allocator.free(repo.value);
+    const tag_default = try defaultTag(tool, version);
+    defer allocator.free(tag_default);
+    const tag = try common.envOrDefault(allocator, common.tagEnvKey(tool), tag_default);
+    defer if (tag.owned) allocator.free(tag.value);
+
+    return std.fmt.allocPrint(allocator, "https://github.com/{s}/releases/download/{s}/{s}", .{
+        repo.value,
+        tag.value,
+        signature_name,
+    });
+}
+
 pub fn defaultRepo(tool: common.SourceTool) []const u8 {
     return switch (tool) {
         .Zig => "ziglang/zig",
@@ -77,6 +123,22 @@ pub fn defaultTag(tool: common.SourceTool, version: []const u8) ![]const u8 {
     return switch (tool) {
         .Zig, .Rust => std.heap.page_allocator.dupe(u8, version),
         .Musl => std.fmt.allocPrint(std.heap.page_allocator, "v{s}", .{version}),
+    };
+}
+
+fn signatureAssetEnvKey(tool: common.SourceTool) []const u8 {
+    return switch (tool) {
+        .Zig => "KILNEXUS_ZIG_SOURCE_SIG",
+        .Rust => "KILNEXUS_RUST_SOURCE_SIG",
+        .Musl => "KILNEXUS_MUSL_SOURCE_SIG",
+    };
+}
+
+fn signatureUrlEnvKey(tool: common.SourceTool) []const u8 {
+    return switch (tool) {
+        .Zig => "KILNEXUS_ZIG_SOURCE_SIG_URL",
+        .Rust => "KILNEXUS_RUST_SOURCE_SIG_URL",
+        .Musl => "KILNEXUS_MUSL_SOURCE_SIG_URL",
     };
 }
 

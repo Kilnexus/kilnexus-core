@@ -3,16 +3,31 @@ const manager = @import("manager.zig");
 const common = @import("source_builder/common.zig");
 const download = @import("source_builder/download.zig");
 const build = @import("source_builder/build.zig");
+const bootstrap_seed = @import("source_builder/bootstrap_seed.zig");
 const verify = @import("source_builder/verify.zig");
 const install = @import("source_builder/install.zig");
 
-pub fn buildZigFromSource(version: []const u8, sha256: ?[]const u8) !void {
+pub const BootstrapSeedSpec = struct {
+    version: []const u8,
+    sha256: ?[]const u8 = null,
+};
+
+pub fn buildZigFromSource(
+    version: []const u8,
+    sha256: ?[]const u8,
+    seed_spec: ?BootstrapSeedSpec,
+) !void {
     const allocator = std.heap.page_allocator;
     const source_root = try download.prepareSource(.Zig, version, sha256);
     defer allocator.free(source_root);
     const build_dir = try common.buildDirFor(.Zig, source_root, "zig-out");
     defer allocator.free(build_dir);
-    try build.buildZig(source_root);
+    var seed_path: ?[]const u8 = null;
+    defer if (seed_path) |path| allocator.free(path);
+    if (seed_spec) |spec| {
+        seed_path = try bootstrap_seed.buildZigSeed(.{ .version = spec.version, .sha256 = spec.sha256 });
+    }
+    try build.buildZig(source_root, seed_path);
     try verify.verifyStages(.Zig, build_dir);
     const install_dir = try manager.zigInstallDirRelForVersion(allocator, version);
     defer allocator.free(install_dir);

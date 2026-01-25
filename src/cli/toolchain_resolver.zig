@@ -18,12 +18,17 @@ pub fn resolveOrBootstrapZig(
     stdout: anytype,
     version: []const u8,
     source_spec: ?common.BootstrapSourceSpec,
+    seed_spec: ?common.BootstrapSeedSpec,
 ) ![]const u8 {
     return core.toolchain_manager.resolveZigPathForVersion(allocator, cwd, version) catch |err| {
         if (err != error.ToolchainMissing) return err;
         if (source_spec != null) {
             try stdout.print(">> Zig toolchain missing. Bootstrapping from source...\n", .{});
-            core.toolchain_source_builder.buildZigFromSource(version, source_spec.?.sha256) catch |boot_err| {
+            const seed = if (seed_spec) |spec| core.toolchain_source_builder.BootstrapSeedSpec{
+                .version = spec.version,
+                .sha256 = spec.sha256,
+            } else null;
+            core.toolchain_source_builder.buildZigFromSource(version, source_spec.?.sha256, seed) catch |boot_err| {
                 try stdout.print("!! Source bootstrap failed: {s}\n", .{@errorName(boot_err)});
                 try printToolchainHints(allocator, stdout, version);
                 return error.ToolchainMissing;
@@ -130,6 +135,7 @@ pub fn bootstrapProjectToolchains(
     project_kind: core.protocol.ProjectKind,
     versions: common.BootstrapVersions,
     sources: common.BootstrapSourceVersions,
+    seed: ?common.BootstrapSeedSpec,
 ) !void {
     switch (project_kind) {
         .Rust => {
@@ -139,6 +145,7 @@ pub fn bootstrapProjectToolchains(
                 stdout,
                 versions.zig orelse core.toolchain_manager.default_zig_version,
                 sources.zig,
+                seed,
             );
             defer allocator.free(zig_path);
             var rust_paths = try resolveOrBootstrapRust(
@@ -161,6 +168,7 @@ pub fn bootstrapProjectToolchains(
                 stdout,
                 versions.zig orelse core.toolchain_manager.default_zig_version,
                 sources.zig,
+                seed,
             );
             defer allocator.free(zig_path);
         },

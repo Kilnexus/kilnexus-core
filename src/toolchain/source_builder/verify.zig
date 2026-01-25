@@ -1,6 +1,8 @@
 const std = @import("std");
 const common = @import("common.zig");
 const reproducibility = @import("../../reproducibility/verifier.zig");
+const minisign = @import("../minisign.zig");
+const stage_verify = @import("stage_verify.zig");
 
 pub fn verifyStages(tool: common.SourceTool, build_dir: []const u8) !void {
     const allocator = std.heap.page_allocator;
@@ -8,7 +10,13 @@ pub fn verifyStages(tool: common.SourceTool, build_dir: []const u8) !void {
     defer if (stage1) |value| allocator.free(value);
     const stage2 = try common.envOrNull(allocator, common.stageEnvKey(tool, "STAGE2_PATH"));
     defer if (stage2) |value| allocator.free(value);
+    const stage3 = try common.envOrNull(allocator, common.stageEnvKey(tool, "STAGE3_PATH"));
+    defer if (stage3) |value| allocator.free(value);
 
+    if (stage1 != null and stage2 != null and stage3 != null) {
+        try stage_verify.verifyThreeStageBootstrap(stage1.?, stage2.?, stage3.?);
+        return;
+    }
     if (stage1 != null and stage2 != null) {
         try compareStages(stage1.?, stage2.?);
         return;
@@ -32,6 +40,12 @@ pub fn verifyStages(tool: common.SourceTool, build_dir: []const u8) !void {
                 const candidate = try std.fs.path.join(allocator, &[_][]const u8{ build_dir, "bin", stage1_name.value });
                 defer allocator.free(candidate);
                 if (common.fileExists(candidate)) {
+                    const stage3_candidate = try findZigStage3(allocator, build_dir);
+                    defer if (stage3_candidate) |path| allocator.free(path);
+                    if (stage3_candidate != null) {
+                        try stage_verify.verifyThreeStageBootstrap(candidate, stage2_path, stage3_candidate.?);
+                        return;
+                    }
                     try compareStages(candidate, stage2_path);
                     return;
                 }
@@ -42,6 +56,12 @@ pub fn verifyStages(tool: common.SourceTool, build_dir: []const u8) !void {
             defer if (stage1_path) |path| allocator.free(path);
             const stage2_path = try findStageRustc(allocator, build_dir, "stage2");
             defer if (stage2_path) |path| allocator.free(path);
+            const stage3_path = try findStageRustc(allocator, build_dir, "stage3");
+            defer if (stage3_path) |path| allocator.free(path);
+            if (stage1_path != null and stage2_path != null and stage3_path != null) {
+                try stage_verify.verifyThreeStageBootstrap(stage1_path.?, stage2_path.?, stage3_path.?);
+                return;
+            }
             if (stage1_path != null and stage2_path != null) {
                 try compareStages(stage1_path.?, stage2_path.?);
                 return;
@@ -54,6 +74,14 @@ pub fn verifyStages(tool: common.SourceTool, build_dir: []const u8) !void {
 pub fn compareStages(stage1: []const u8, stage2: []const u8) !void {
     const matches = try reproducibility.compareBinaries(stage1, stage2);
     if (!matches) return error.StageMismatch;
+}
+
+pub fn verifySha256WithSignature(
+    archive_path: []const u8,
+    sig_path: []const u8,
+    public_key: []const u8,
+) !void {
+    try minisign.verifyFileSignatureWithKey(std.heap.page_allocator, archive_path, sig_path, public_key);
 }
 
 pub fn findStageRustc(allocator: std.mem.Allocator, build_dir: []const u8, stage: []const u8) !?[]const u8 {
@@ -86,4 +114,19 @@ pub fn findStageBinDir(allocator: std.mem.Allocator, build_dir: []const u8, stag
         return try std.fs.path.join(allocator, &[_][]const u8{ build_dir, entry.path });
     }
     return error.SourceBuildMissing;
+}
+
+fn findZigStage3(allocator: std.mem.Allocator, build_dir: []const u8) !?[]const u8 {
+    const candidates = &[_][]const u8{
+        "zig-stage3",
+        "zig3",
+    };
+    for (candidates) |name| {
+        const exe = try common.exeNameAlloc(allocator, name);
+        defer if (exe.owned) allocator.free(exe.value);
+        const candidate = try std.fs.path.join(allocator, &[_][]const u8{ build_dir, "bin", exe.value });
+        if (common.fileExists(candidate)) return candidate;
+        allocator.free(candidate);
+    }
+    return null;
 }

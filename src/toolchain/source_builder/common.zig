@@ -88,9 +88,17 @@ pub fn assetEnvKey(tool: SourceTool) []const u8 {
 
 pub fn stageEnvKey(tool: SourceTool, suffix: []const u8) []const u8 {
     return switch (tool) {
-        .Zig => if (std.mem.eql(u8, suffix, "STAGE1_PATH")) "KILNEXUS_ZIG_STAGE1_PATH" else "KILNEXUS_ZIG_STAGE2_PATH",
-        .Rust => if (std.mem.eql(u8, suffix, "STAGE1_PATH")) "KILNEXUS_RUST_STAGE1_PATH" else "KILNEXUS_RUST_STAGE2_PATH",
-        .Musl => if (std.mem.eql(u8, suffix, "STAGE1_PATH")) "KILNEXUS_MUSL_STAGE1_PATH" else "KILNEXUS_MUSL_STAGE2_PATH",
+        .Zig => if (std.mem.eql(u8, suffix, "STAGE1_PATH")) "KILNEXUS_ZIG_STAGE1_PATH" else if (std.mem.eql(u8, suffix, "STAGE2_PATH")) "KILNEXUS_ZIG_STAGE2_PATH" else "KILNEXUS_ZIG_STAGE3_PATH",
+        .Rust => if (std.mem.eql(u8, suffix, "STAGE1_PATH")) "KILNEXUS_RUST_STAGE1_PATH" else if (std.mem.eql(u8, suffix, "STAGE2_PATH")) "KILNEXUS_RUST_STAGE2_PATH" else "KILNEXUS_RUST_STAGE3_PATH",
+        .Musl => if (std.mem.eql(u8, suffix, "STAGE1_PATH")) "KILNEXUS_MUSL_STAGE1_PATH" else if (std.mem.eql(u8, suffix, "STAGE2_PATH")) "KILNEXUS_MUSL_STAGE2_PATH" else "KILNEXUS_MUSL_STAGE3_PATH",
+    };
+}
+
+pub fn signatureKeyEnvKey(tool: SourceTool) []const u8 {
+    return switch (tool) {
+        .Zig => "KILNEXUS_ZIG_SOURCE_PUBKEY",
+        .Rust => "KILNEXUS_RUST_SOURCE_PUBKEY",
+        .Musl => "KILNEXUS_MUSL_SOURCE_PUBKEY",
     };
 }
 

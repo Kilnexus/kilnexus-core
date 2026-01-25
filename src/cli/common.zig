@@ -19,6 +19,11 @@ pub const BootstrapSourceSpec = struct {
     sha256: ?[]const u8 = null,
 };
 
+pub const BootstrapSeedSpec = struct {
+    version: []const u8,
+    sha256: ?[]const u8 = null,
+};
+
 pub const BootstrapSourceVersions = struct {
     zig: ?BootstrapSourceSpec = null,
     rust: ?BootstrapSourceSpec = null,

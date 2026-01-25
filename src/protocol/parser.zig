@@ -11,6 +11,7 @@ pub const Command = union(enum) {
     Build: ?[]const u8,
     Bootstrap: BootstrapOptions,
     BootstrapFromSource: BootstrapFromSourceOptions,
+    BootstrapSeed: BootstrapSeedOptions,
     Pack: PackOptions,
     StaticLibc: StaticLibcOptions,
     VerifyReproducible: bool,
@@ -41,6 +42,14 @@ pub const BootstrapOptions = struct {
 
 pub const BootstrapFromSourceOptions = struct {
     pub const Tool = enum { Zig, Rust, Musl };
+
+    tool: Tool,
+    version: []const u8,
+    sha256: ?[]const u8,
+};
+
+pub const BootstrapSeedOptions = struct {
+    pub const Tool = enum { Zig };
 
     tool: Tool,
     version: []const u8,
@@ -168,6 +177,15 @@ pub const KilnexusParser = struct {
                     return error.MissingArgument;
                 }
                 return parseBootstrap(tokens, &self.error_column) catch |err| {
+                    if (self.error_column == 0) self.error_column = tokens[1].start + 1;
+                    return err;
+                };
+            } else if (std.ascii.eqlIgnoreCase(keyword, "BOOTSTRAP_SEED")) {
+                if (tokens.len < 2) {
+                    self.error_column = line.len + 1;
+                    return error.MissingArgument;
+                }
+                return parseBootstrapSeed(tokens, &self.error_column) catch |err| {
                     if (self.error_column == 0) self.error_column = tokens[1].start + 1;
                     return err;
                 };
@@ -389,6 +407,36 @@ fn parseBootstrapFromSource(tokens: []const tokenizer.Token, error_column: *usiz
     } };
 }
 
+fn parseBootstrapSeed(tokens: []const tokenizer.Token, error_column: *usize) !Command {
+    if (tokens.len < 3) {
+        error_column.* = tokens[0].end + 1;
+        return error.MissingArgument;
+    }
+    const tool = parseBootstrapSeedTool(tokens[1].text) orelse {
+        error_column.* = tokens[1].start + 1;
+        return error.InvalidBootstrapSeedSpec;
+    };
+    const version = tokens[2].text;
+    if (version.len == 0) {
+        error_column.* = tokens[2].start + 1;
+        return error.InvalidBootstrapSeedSpec;
+    }
+
+    var sha256: ?[]const u8 = null;
+    if (tokens.len > 3) {
+        sha256 = parseSha256(tokens[3].text) orelse {
+            error_column.* = tokens[3].start + 1;
+            return error.InvalidBootstrapSeedSpec;
+        };
+    }
+
+    return Command{ .BootstrapSeed = .{
+        .tool = tool,
+        .version = version,
+        .sha256 = sha256,
+    } };
+}
+
 fn parseStaticLibc(tokens: []const tokenizer.Token, error_column: *usize) !Command {
     if (tokens.len < 3) return error.MissingArgument;
     const name = tokens[1].text;
@@ -434,6 +482,11 @@ fn parseBootstrapTool(raw: []const u8) ?BootstrapOptions.Tool {
     if (std.ascii.eqlIgnoreCase(raw, "zig")) return .Zig;
     if (std.ascii.eqlIgnoreCase(raw, "rust")) return .Rust;
     if (std.ascii.eqlIgnoreCase(raw, "go")) return .Go;
+    return null;
+}
+
+fn parseBootstrapSeedTool(raw: []const u8) ?BootstrapSeedOptions.Tool {
+    if (std.ascii.eqlIgnoreCase(raw, "zig")) return .Zig;
     return null;
 }
 

@@ -20,6 +20,7 @@ pub const BuildInputs = struct {
     zig_version: []const u8,
     rust_version: []const u8,
     bootstrap_sources: common.BootstrapSourceVersions,
+    bootstrap_seed: ?common.BootstrapSeedSpec,
     static_libc_enabled: bool,
     verify_reproducible: bool,
     pack_format: ?core.protocol.PackOptions.Format,
@@ -61,6 +62,7 @@ fn buildC(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inputs
         stdout,
         inputs.zig_version,
         inputs.bootstrap_sources.zig,
+        inputs.bootstrap_seed,
     ) catch return;
     defer allocator.free(zig_path);
     const options = core.toolchain_common.CompileOptions{
@@ -88,6 +90,7 @@ fn buildCpp(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inpu
         stdout,
         inputs.zig_version,
         inputs.bootstrap_sources.zig,
+        inputs.bootstrap_seed,
     ) catch return;
     defer allocator.free(zig_path);
     const options = core.toolchain_common.CompileOptions{
@@ -115,6 +118,7 @@ fn buildRust(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inp
         stdout,
         inputs.zig_version,
         inputs.bootstrap_sources.zig,
+        inputs.bootstrap_seed,
     ) catch return;
     defer allocator.free(zig_path);
     var rust_paths = toolchain.resolveOrBootstrapRust(
@@ -164,6 +168,7 @@ fn buildCargo(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, in
         stdout,
         inputs.zig_version,
         inputs.bootstrap_sources.zig,
+        inputs.bootstrap_seed,
     ) catch return;
     defer allocator.free(zig_path);
     var rust_paths = toolchain.resolveOrBootstrapRust(

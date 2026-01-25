@@ -9,6 +9,7 @@ pub fn parserErrorMessage(err: anyerror) []const u8 {
         error.InvalidPackFormat => "Invalid PACK format (tar.gz|zip).",
         error.InvalidBootstrapSpec => "Invalid BOOTSTRAP spec (expected zig:<version>, rust:<version>, or go:<version>).",
         error.InvalidBootstrapSourceSpec => "Invalid BOOTSTRAP_FROM_SOURCE spec (expected tool, version, optional sha256:...).",
+        error.InvalidBootstrapSeedSpec => "Invalid BOOTSTRAP_SEED spec (expected zig <version> optional sha256:...).",
         error.InvalidStaticLibcSpec => "Invalid STATIC_LIBC spec (expected name version).",
         error.InvalidBoolean => "Invalid boolean (expected true|false).",
         error.InvalidProjectType => "Invalid PROJECT type.",
