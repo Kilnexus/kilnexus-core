@@ -15,14 +15,19 @@ pub fn main() !void {
 
     var cwd = std.fs.cwd();
     try core.toolchain_manager.ensureProjectCache(cwd);
-    const has_manifest = if (cwd.access("Kilnexusfile", .{})) |_| true else |err| switch (err) {
+    const has_knxfile = if (cwd.access("Knxfile", .{})) |_| true else |err| switch (err) {
+        error.FileNotFound => false,
+        else => return err,
+    };
+    const has_legacy_manifest = if (cwd.access("Kilnexusfile", .{})) |_| true else |err| switch (err) {
         error.FileNotFound => false,
         else => return err,
     };
 
-    if (has_manifest) {
-        try stdout.print(">> Detected Kilnexusfile. Parsing protocol...\n", .{});
-        try manifest_handler.handle(allocator, cwd, stdout);
+    if (has_knxfile or has_legacy_manifest) {
+        const manifest_name = if (has_knxfile) "Knxfile" else "Kilnexusfile";
+        try stdout.print(">> Detected {s}. Parsing protocol...\n", .{manifest_name});
+        try manifest_handler.handle(allocator, cwd, stdout, manifest_name);
     } else {
         try stdout.print(">> No manifest. Initiating Inference Engine...\n", .{});
         const project_type = try core.inference.detect(cwd);

@@ -32,8 +32,8 @@ pub const StaticLibcSpec = struct {
     version: []const u8,
 };
 
-pub fn handle(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype) !void {
-    var manifest = try parseManifest(allocator, cwd, stdout);
+pub fn handle(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, manifest_name: []const u8) !void {
+    var manifest = try parseManifest(allocator, cwd, stdout, manifest_name);
     defer manifest.deinit(allocator);
 
     if (manifest.build_path == null) {
@@ -176,8 +176,13 @@ pub fn handle(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype) !v
     try builder.executeBuild(allocator, cwd, stdout, inputs);
 }
 
-fn parseManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype) !Manifest {
-    const file = try cwd.openFile("Kilnexusfile", .{});
+fn parseManifest(
+    allocator: std.mem.Allocator,
+    cwd: std.fs.Dir,
+    stdout: anytype,
+    manifest_name: []const u8,
+) !Manifest {
+    const file = try cwd.openFile(manifest_name, .{});
     defer file.close();
 
     const source = try file.readToEndAlloc(allocator, 1024 * 1024);
@@ -188,7 +193,8 @@ fn parseManifest(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype)
 
     while (true) {
         const cmd = parser.next() catch |err| {
-            try stdout.print("!! Kilnexusfile syntax error at line {d}: {s}\n", .{
+            try stdout.print("!! {s} syntax error at line {d}: {s}\n", .{
+                manifest_name,
                 parser.currentLine(),
                 core.protocol_error.parserErrorMessage(err),
             });
