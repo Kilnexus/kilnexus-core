@@ -25,7 +25,12 @@ pub fn buildZigArgs(
     });
     if (options.static) try args.argv.append(allocator, "-static");
 
-    if (options.env.target) |target| {
+    if (options.cross_target) |target| {
+        const resolved = try target_builder.resolveTarget(allocator, target.toZigTarget(), options.env.kernel_version);
+        if (resolved.owned) |value| try args.owned.append(allocator, value);
+        try args.argv.append(allocator, "-target");
+        try args.argv.append(allocator, resolved.value);
+    } else if (options.env.target) |target| {
         const resolved = try target_builder.resolveTarget(allocator, target, options.env.kernel_version);
         if (resolved.owned) |value| try args.owned.append(allocator, value);
         try args.argv.append(allocator, "-target");

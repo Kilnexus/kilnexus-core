@@ -9,6 +9,7 @@ pub const BuildInputs = struct {
     output_name: []const u8,
     project_name: ?[]const u8,
     env: core.toolchain_common.VirtualEnv,
+    cross_target: ?core.toolchain_cross.target.CrossTarget,
     include_dirs: []const []const u8,
     lib_dirs: []const []const u8,
     link_libs: []const []const u8,
@@ -70,17 +71,14 @@ fn buildC(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inputs
         .static = true,
         .zig_path = zig_path,
         .env = inputs.env,
+        .cross_target = inputs.cross_target,
         .include_dirs = inputs.include_dirs,
         .lib_dirs = inputs.lib_dirs,
         .link_libs = inputs.link_libs,
         .extra_sources = inputs.extra_sources,
     };
-    var args = try core.toolchain_builder_zig.buildZigArgs(allocator, "cc", inputs.path, options);
-    defer args.deinit(allocator);
-    var env_map = try core.toolchain_executor.getEnvMap(allocator);
-    defer env_map.deinit();
-    try core.toolchain_executor.ensureSourceDateEpoch(&env_map);
-    try core.toolchain_executor.runWithEnvMap(allocator, cwd, args.argv.items, inputs.env, &env_map);
+    const driver = core.toolchain_cross.zig_driver.ZigDriver.init(allocator, cwd);
+    try driver.compileC(inputs.path, options);
 }
 
 fn buildCpp(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inputs: BuildInputs) !void {
@@ -98,17 +96,14 @@ fn buildCpp(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inpu
         .static = true,
         .zig_path = zig_path,
         .env = inputs.env,
+        .cross_target = inputs.cross_target,
         .include_dirs = inputs.include_dirs,
         .lib_dirs = inputs.lib_dirs,
         .link_libs = inputs.link_libs,
         .extra_sources = inputs.extra_sources,
     };
-    var args = try core.toolchain_builder_zig.buildZigArgs(allocator, "c++", inputs.path, options);
-    defer args.deinit(allocator);
-    var env_map = try core.toolchain_executor.getEnvMap(allocator);
-    defer env_map.deinit();
-    try core.toolchain_executor.ensureSourceDateEpoch(&env_map);
-    try core.toolchain_executor.runWithEnvMap(allocator, cwd, args.argv.items, inputs.env, &env_map);
+    const driver = core.toolchain_cross.zig_driver.ZigDriver.init(allocator, cwd);
+    try driver.compileCpp(inputs.path, options);
 }
 
 fn buildRust(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inputs: BuildInputs) !void {
@@ -147,6 +142,7 @@ fn buildRust(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inp
         .rustc_path = rust_paths.rustc,
         .rust_crt_static = inputs.static_libc_enabled,
         .env = inputs.env,
+        .cross_target = inputs.cross_target,
         .lib_dirs = inputs.lib_dirs,
         .link_libs = inputs.link_libs,
         .extra_args = inputs.rustc_extra_args.items,
@@ -198,6 +194,7 @@ fn buildCargo(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, in
         .cargo_path = rust_paths.cargo,
         .rust_crt_static = inputs.static_libc_enabled,
         .env = inputs.env,
+        .cross_target = inputs.cross_target,
         .cargo_manifest_path = manifest_path,
         .lib_dirs = inputs.lib_dirs,
         .link_libs = inputs.link_libs,

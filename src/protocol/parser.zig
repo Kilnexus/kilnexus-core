@@ -1,11 +1,14 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
+const protocol_types = @import("types.zig");
+const sysroot_mod = @import("../toolchain/cross/sysroot.zig");
+const target_mod = @import("../toolchain/cross/target.zig");
 
 pub const Command = union(enum) {
     Project: ProjectSpec,
-    Target: []const u8,
+    Target: protocol_types.TargetSpec,
     Kernel: []const u8,
-    Sysroot: []const u8,
+    Sysroot: protocol_types.SysrootSpec,
     VirtualRoot: []const u8,
     Use: UseDependency,
     Build: ?[]const u8,
@@ -140,7 +143,10 @@ pub const KilnexusParser = struct {
                     self.error_column = line.len + 1;
                     return error.MissingArgument;
                 }
-                return Command{ .Target = tokens[1].text };
+                return parseTarget(tokens, &self.error_column) catch |err| {
+                    if (self.error_column == 0) self.error_column = tokens[1].start + 1;
+                    return err;
+                };
             } else if (std.ascii.eqlIgnoreCase(keyword, "KERNEL") or std.ascii.eqlIgnoreCase(keyword, "KERNEL_VERSION")) {
                 if (tokens.len < 2) {
                     self.error_column = line.len + 1;
@@ -152,7 +158,7 @@ pub const KilnexusParser = struct {
                     self.error_column = line.len + 1;
                     return error.MissingArgument;
                 }
-                return Command{ .Sysroot = tokens[1].text };
+                return Command{ .Sysroot = sysroot_mod.parseSysrootSpec(tokens[1].text) };
             } else if (std.ascii.eqlIgnoreCase(keyword, "VROOT") or std.ascii.eqlIgnoreCase(keyword, "VIRTUAL_ROOT")) {
                 if (tokens.len < 2) {
                     self.error_column = line.len + 1;
@@ -289,6 +295,30 @@ fn parseUse(tokens: []const tokenizer.Token, error_column: *usize) !Command {
             .strategy = strategy,
         },
     };
+}
+
+fn parseTarget(tokens: []const tokenizer.Token, error_column: *usize) !Command {
+    const target_text = tokens[1].text;
+    const target = target_mod.CrossTarget.parse(target_text) catch {
+        error_column.* = tokens[1].start + 1;
+        return error.InvalidTarget;
+    };
+
+    var sysroot_spec: ?protocol_types.SysrootSpec = null;
+    var i: usize = 2;
+    while (i < tokens.len) : (i += 1) {
+        const word = tokens[i].text;
+        if (std.ascii.eqlIgnoreCase(word, "SYSROOT")) {
+            if (i + 1 >= tokens.len) {
+                error_column.* = tokens[i].end + 1;
+                return error.MissingArgument;
+            }
+            sysroot_spec = sysroot_mod.parseSysrootSpec(tokens[i + 1].text);
+            i += 1;
+        }
+    }
+
+    return Command{ .Target = .{ .target = target, .sysroot = sysroot_spec } };
 }
 
 fn parsePack(tokens: []const tokenizer.Token, error_column: *usize) !Command {

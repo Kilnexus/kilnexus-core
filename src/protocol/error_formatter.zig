@@ -13,6 +13,7 @@ pub fn parserErrorMessage(err: anyerror) []const u8 {
         error.InvalidStaticLibcSpec => "Invalid STATIC_LIBC spec (expected name version).",
         error.InvalidBoolean => "Invalid boolean (expected true|false).",
         error.InvalidProjectType => "Invalid PROJECT type.",
+        error.InvalidTarget => "Invalid TARGET (expected arch-os-abi).",
         else => @errorName(err),
     };
 }

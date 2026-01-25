@@ -1,4 +1,5 @@
 const std = @import("std");
+const cross_target_mod = @import("cross/target.zig");
 
 /// Shared toolchain types.
 pub const VirtualEnv = struct {
@@ -16,6 +17,7 @@ pub const CompileOptions = struct {
     rustc_path: []const u8 = "rustc",
     cargo_path: []const u8 = "cargo",
     env: VirtualEnv = .{},
+    cross_target: ?cross_target_mod.CrossTarget = null,
     include_dirs: []const []const u8 = &[_][]const u8{},
     lib_dirs: []const []const u8 = &[_][]const u8{},
     link_libs: []const []const u8 = &[_][]const u8{},

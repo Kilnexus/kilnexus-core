@@ -87,8 +87,7 @@ pub fn buildRustArgs(
         }
     }
 
-    if (options.env.target) |target| {
-        const resolved = try target_builder.resolveTarget(allocator, target, options.env.kernel_version);
+    if (try resolveRustTarget(allocator, options)) |resolved| {
         if (resolved.owned) |value| try args.owned.append(allocator, value);
         try args.argv.append(allocator, "--target");
         try args.argv.append(allocator, resolved.value);
@@ -132,8 +131,7 @@ pub fn buildCargoPlan(
         try args.argv.append(allocator, manifest);
     }
 
-    if (options.env.target) |target| {
-        const resolved = try target_builder.resolveTarget(allocator, target, options.env.kernel_version);
+    if (try resolveRustTarget(allocator, options)) |resolved| {
         if (resolved.owned) |value| try args.owned.append(allocator, value);
         target_value = resolved.value;
         try args.argv.append(allocator, "--target");
@@ -256,6 +254,16 @@ fn cargoTargetLinkerKey(allocator: std.mem.Allocator, target: []const u8) ![]con
     }
     try key.appendSlice(allocator, "_LINKER");
     return try key.toOwnedSlice(allocator);
+}
+
+fn resolveRustTarget(allocator: std.mem.Allocator, options: common.CompileOptions) !?target_builder.TargetResolution {
+    if (options.cross_target) |target| {
+        return try target_builder.resolveTarget(allocator, target.toRustTarget(), options.env.kernel_version);
+    }
+    if (options.env.target) |raw| {
+        return try target_builder.resolveTarget(allocator, raw, options.env.kernel_version);
+    }
+    return null;
 }
 
 fn argvHasPair(argv: []const []const u8, first: []const u8, second: []const u8) bool {

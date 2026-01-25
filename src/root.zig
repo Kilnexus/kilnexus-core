@@ -1,8 +1,10 @@
 pub const inference = @import("inference/detector.zig");
 pub const strategy = @import("inference/strategy.zig");
 pub const protocol = @import("protocol/parser.zig");
+pub const protocol_types = @import("protocol/types.zig");
 pub const protocol_error = @import("protocol/error_formatter.zig");
 pub const toolchain_common = @import("toolchain/common.zig");
+pub const toolchain_cross = @import("toolchain/cross.zig");
 pub const toolchain_builder_zig = @import("toolchain/builder/zig.zig");
 pub const toolchain_builder_rust = @import("toolchain/builder/rust.zig");
 pub const toolchain_executor = @import("toolchain/executor.zig");

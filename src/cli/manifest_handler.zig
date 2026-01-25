@@ -9,9 +9,9 @@ const builder = @import("build_executor.zig");
 pub const Manifest = struct {
     project_name: ?[]const u8 = null,
     project_kind: ?core.protocol.ProjectKind = null,
-    target: ?[]const u8 = null,
+    target: ?core.protocol_types.CrossTarget = null,
     kernel_version: ?[]const u8 = null,
-    sysroot: ?[]const u8 = null,
+    sysroot_spec: ?core.protocol_types.SysrootSpec = null,
     virtual_root: ?[]const u8 = null,
     build_path: ?[]const u8 = null,
     pack_format: ?core.protocol.PackOptions.Format = null,
@@ -138,7 +138,27 @@ pub fn handle(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, ma
             if (resolved.lib_dir) |lib| try lib_dirs.append(allocator, lib);
             static_libc_root = resolved.root;
         }
-        if (manifest.sysroot == null) manifest.sysroot = static_libc_root;
+        if (manifest.sysroot_spec == null and static_libc_root != null) {
+            manifest.sysroot_spec = .{ .source = .ExternalPath, .path = static_libc_root };
+        }
+    }
+
+    var sysroot_path: ?[]const u8 = null;
+    if (manifest.sysroot_spec) |spec| {
+        var config = try core.toolchain_cross.sysroot.resolveSysroot(
+            allocator,
+            manifest.target,
+            spec,
+            static_libc_root,
+        );
+        defer config.deinit(allocator);
+        sysroot_path = config.root;
+        if (config.include_dirs.items.len != 0) {
+            for (config.include_dirs.items) |dir| try include_dirs.append(allocator, dir);
+        }
+        if (config.lib_dirs.items.len != 0) {
+            for (config.lib_dirs.items) |dir| try lib_dirs.append(allocator, dir);
+        }
     }
 
     const output_name = manifest.project_name orelse "Kilnexus-out";
@@ -149,9 +169,9 @@ pub fn handle(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, ma
         virtual_root = sandbox_root;
     }
     const env = core.toolchain_common.VirtualEnv{
-        .target = manifest.target,
+        .target = if (manifest.target) |target| target.toZigTarget() else null,
         .kernel_version = manifest.kernel_version,
-        .sysroot = manifest.sysroot,
+        .sysroot = sysroot_path,
         .virtual_root = virtual_root,
     };
 
@@ -160,6 +180,7 @@ pub fn handle(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, ma
         .output_name = output_name,
         .project_name = manifest.project_name,
         .env = env,
+        .cross_target = manifest.target,
         .include_dirs = include_dirs.items,
         .lib_dirs = lib_dirs.items,
         .link_libs = link_libs.items,
@@ -217,9 +238,12 @@ fn parseManifest(
                 manifest.project_name = spec.name;
                 if (spec.kind) |kind| manifest.project_kind = kind;
             },
-            .Target => |value| manifest.target = value,
+            .Target => |spec| {
+                manifest.target = spec.target;
+                if (spec.sysroot) |sysroot| manifest.sysroot_spec = sysroot;
+            },
             .Kernel => |value| manifest.kernel_version = value,
-            .Sysroot => |value| manifest.sysroot = value,
+            .Sysroot => |value| manifest.sysroot_spec = value,
             .VirtualRoot => |value| manifest.virtual_root = value,
             .Build => |path| manifest.build_path = path,
             .Bootstrap => |boot| switch (boot.tool) {
