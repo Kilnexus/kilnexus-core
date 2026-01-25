@@ -20,6 +20,8 @@ pub const Manifest = struct {
     bootstrap_sources: common.BootstrapSourceVersions = .{},
     bootstrap_seed: ?common.BootstrapSeedSpec = null,
     static_libc: ?StaticLibcSpec = null,
+    deterministic_level: ?core.protocol_types.DeterministicLevel = null,
+    isolation_level: ?core.protocol_types.IsolationLevel = null,
     verify_reproducible: bool = false,
     sandbox_build: bool = false,
 
@@ -189,6 +191,9 @@ pub fn handle(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, ma
         .rustc_extra_args = &rustc_extra_args,
         .rustflags_extra = &rustflags_extra,
         .owned = &owned,
+        .deterministic_level = manifest.deterministic_level,
+        .isolation_level = manifest.isolation_level,
+        .remap_prefix = null,
         .zig_version = manifest.bootstrap_versions.zig orelse core.toolchain_manager.default_zig_version,
         .rust_version = manifest.bootstrap_versions.rust orelse core.toolchain_manager.default_rust_version,
         .bootstrap_sources = manifest.bootstrap_sources,
@@ -246,6 +251,8 @@ fn parseManifest(
             .Sysroot => |value| manifest.sysroot_spec = value,
             .VirtualRoot => |value| manifest.virtual_root = value,
             .Build => |path| manifest.build_path = path,
+            .Deterministic => |level| manifest.deterministic_level = level,
+            .Isolation => |level| manifest.isolation_level = level,
             .Bootstrap => |boot| switch (boot.tool) {
                 .Zig => manifest.bootstrap_versions.zig = boot.version,
                 .Rust => manifest.bootstrap_versions.rust = boot.version,

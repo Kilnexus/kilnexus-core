@@ -11,6 +11,8 @@ pub fn parserErrorMessage(err: anyerror) []const u8 {
         error.InvalidBootstrapSourceSpec => "Invalid BOOTSTRAP_FROM_SOURCE spec (expected tool, version, optional sha256:...).",
         error.InvalidBootstrapSeedSpec => "Invalid BOOTSTRAP_SEED spec (expected zig <version> optional sha256:...).",
         error.InvalidStaticLibcSpec => "Invalid STATIC_LIBC spec (expected name version).",
+        error.InvalidDeterministicLevel => "Invalid DETERMINISTIC level (strict|standard|relaxed).",
+        error.InvalidIsolationLevel => "Invalid ISOLATION level (full|minimal|none).",
         error.InvalidBoolean => "Invalid boolean (expected true|false).",
         error.InvalidProjectType => "Invalid PROJECT type.",
         error.InvalidTarget => "Invalid TARGET (expected arch-os-abi).",

@@ -14,3 +14,7 @@ pub const toolchain_source_builder = @import("toolchain/source_builder.zig");
 pub const toolchain_static = @import("toolchain/static_verifier.zig");
 pub const archive = @import("archive.zig");
 pub const reproducibility_verifier = @import("reproducibility/verifier.zig");
+pub const cli_deterministic_env = @import("cli/deterministic/env_isolate.zig");
+pub const cli_deterministic_flags = @import("cli/deterministic/flags.zig");
+pub const cli_deterministic_order = @import("cli/deterministic/order.zig");
+pub const cli_deterministic_path = @import("cli/deterministic/path_normalize.zig");

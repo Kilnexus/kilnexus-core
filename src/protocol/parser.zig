@@ -12,6 +12,8 @@ pub const Command = union(enum) {
     VirtualRoot: []const u8,
     Use: UseDependency,
     Build: ?[]const u8,
+    Deterministic: protocol_types.DeterministicLevel,
+    Isolation: protocol_types.IsolationLevel,
     Bootstrap: BootstrapOptions,
     BootstrapFromSource: BootstrapFromSourceOptions,
     BootstrapSeed: BootstrapSeedOptions,
@@ -177,6 +179,26 @@ pub const KilnexusParser = struct {
             } else if (std.ascii.eqlIgnoreCase(keyword, "BUILD")) {
                 const path = if (tokens.len >= 2) tokens[1].text else null;
                 return Command{ .Build = path };
+            } else if (std.ascii.eqlIgnoreCase(keyword, "DETERMINISTIC")) {
+                if (tokens.len < 2) {
+                    self.error_column = line.len + 1;
+                    return error.MissingArgument;
+                }
+                const value = parseDeterministicLevel(tokens[1].text) orelse {
+                    self.error_column = tokens[1].start + 1;
+                    return error.InvalidDeterministicLevel;
+                };
+                return Command{ .Deterministic = value };
+            } else if (std.ascii.eqlIgnoreCase(keyword, "ISOLATION")) {
+                if (tokens.len < 2) {
+                    self.error_column = line.len + 1;
+                    return error.MissingArgument;
+                }
+                const value = parseIsolationLevel(tokens[1].text) orelse {
+                    self.error_column = tokens[1].start + 1;
+                    return error.InvalidIsolationLevel;
+                };
+                return Command{ .Isolation = value };
             } else if (std.ascii.eqlIgnoreCase(keyword, "BOOTSTRAP")) {
                 if (tokens.len < 2) {
                     self.error_column = line.len + 1;
@@ -505,6 +527,20 @@ fn parseProjectKind(raw: []const u8) ?ProjectKind {
     if (std.ascii.eqlIgnoreCase(raw, "c")) return .C;
     if (std.ascii.eqlIgnoreCase(raw, "cpp") or std.ascii.eqlIgnoreCase(raw, "c++")) return .Cpp;
     if (std.ascii.eqlIgnoreCase(raw, "python")) return .Python;
+    return null;
+}
+
+fn parseDeterministicLevel(raw: []const u8) ?protocol_types.DeterministicLevel {
+    if (std.ascii.eqlIgnoreCase(raw, "strict")) return .Strict;
+    if (std.ascii.eqlIgnoreCase(raw, "standard")) return .Standard;
+    if (std.ascii.eqlIgnoreCase(raw, "relaxed")) return .Relaxed;
+    return null;
+}
+
+fn parseIsolationLevel(raw: []const u8) ?protocol_types.IsolationLevel {
+    if (std.ascii.eqlIgnoreCase(raw, "full")) return .Full;
+    if (std.ascii.eqlIgnoreCase(raw, "minimal")) return .Minimal;
+    if (std.ascii.eqlIgnoreCase(raw, "none")) return .None;
     return null;
 }
 

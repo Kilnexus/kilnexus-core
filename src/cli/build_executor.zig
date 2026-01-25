@@ -3,6 +3,10 @@ const core = @import("../root.zig");
 const common = @import("common.zig");
 const embed = @import("embed_generator.zig");
 const toolchain = @import("toolchain_resolver.zig");
+const deterministic_env = @import("deterministic/env_isolate.zig");
+const deterministic_flags = @import("deterministic/flags.zig");
+const deterministic_order = @import("deterministic/order.zig");
+const deterministic_path = @import("deterministic/path_normalize.zig");
 
 pub const BuildInputs = struct {
     path: []const u8,
@@ -18,6 +22,9 @@ pub const BuildInputs = struct {
     rustc_extra_args: *std.ArrayList([]const u8),
     rustflags_extra: *std.ArrayList([]const u8),
     owned: *std.ArrayList([]const u8),
+    deterministic_level: ?core.protocol_types.DeterministicLevel,
+    isolation_level: ?core.protocol_types.IsolationLevel,
+    remap_prefix: ?[]const u8,
     zig_version: []const u8,
     rust_version: []const u8,
     bootstrap_sources: common.BootstrapSourceVersions,
@@ -27,20 +34,123 @@ pub const BuildInputs = struct {
     pack_format: ?core.protocol.PackOptions.Format,
 };
 
+const EnvHolder = struct {
+    env_map: ?std.process.EnvMap = null,
+    isolated: ?deterministic_env.IsolatedEnv = null,
+
+    pub fn envMap(self: *EnvHolder) *std.process.EnvMap {
+        if (self.isolated) |*isolated| return isolated.toEnvMap();
+        return &self.env_map.?;
+    }
+
+    pub fn deinit(self: *EnvHolder) void {
+        if (self.isolated) |*isolated| isolated.deinit();
+        if (self.env_map) |*map| map.deinit();
+    }
+};
+
+fn initEnvHolder(
+    allocator: std.mem.Allocator,
+    isolation_level: ?core.protocol_types.IsolationLevel,
+    toolchain_paths: []const []const u8,
+) !EnvHolder {
+    if (isolation_level) |level| {
+        if (level == .None) {
+            return .{ .env_map = try core.toolchain_executor.getEnvMap(allocator) };
+        }
+        var isolated = try deterministic_env.IsolatedEnv.init(allocator, level);
+        for (toolchain_paths) |path| {
+            const dir = std.fs.path.dirname(path) orelse path;
+            try isolated.addToolchain(dir);
+        }
+        return .{ .isolated = isolated };
+    }
+    return .{ .env_map = try core.toolchain_executor.getEnvMap(allocator) };
+}
+
+fn applyDeterministicFlags(
+    allocator: std.mem.Allocator,
+    inputs: *BuildInputs,
+    level: core.protocol_types.DeterministicLevel,
+) !void {
+    const rust_flags = deterministic_flags.DeterministicFlags.forRust(level);
+    try inputs.rustc_extra_args.appendSlice(allocator, rust_flags);
+    try inputs.rustflags_extra.appendSlice(allocator, rust_flags);
+}
+
+fn sortPathsByNormalized(
+    allocator: std.mem.Allocator,
+    normalizer: *deterministic_path.PathNormalizer,
+    paths: []const []const u8,
+    owned: *std.ArrayList([]const u8),
+) !void {
+    if (paths.len < 2) return;
+
+    var keys = try allocator.alloc([]const u8, paths.len);
+    defer allocator.free(keys);
+
+    for (paths, 0..) |path, idx| {
+        const key = try normalizer.normalize(path);
+        try owned.append(allocator, key);
+        keys[idx] = key;
+    }
+
+    const indices = try allocator.alloc(usize, paths.len);
+    defer allocator.free(indices);
+    for (indices, 0..) |*slot, idx| slot.* = idx;
+
+    std.sort.insertion(usize, indices, keys, struct {
+        fn lessThan(keys_ctx: []const []const u8, a: usize, b: usize) bool {
+            return std.mem.lessThan(u8, keys_ctx[a], keys_ctx[b]);
+        }
+    }.lessThan);
+
+    var reordered = try allocator.alloc([]const u8, paths.len);
+    defer allocator.free(reordered);
+    for (indices, 0..) |idx, pos| reordered[pos] = paths[idx];
+    std.mem.copyForwards([]const u8, @constCast(paths), reordered);
+}
+
 pub fn executeBuild(
     allocator: std.mem.Allocator,
     cwd: std.fs.Dir,
     stdout: anytype,
     inputs: BuildInputs,
 ) !void {
-    if (std.mem.endsWith(u8, inputs.path, ".c")) {
-        try buildC(allocator, cwd, stdout, inputs);
-    } else if (std.mem.endsWith(u8, inputs.path, ".cpp") or std.mem.endsWith(u8, inputs.path, ".cc") or std.mem.endsWith(u8, inputs.path, ".cxx")) {
-        try buildCpp(allocator, cwd, stdout, inputs);
-    } else if (std.mem.endsWith(u8, inputs.path, ".rs")) {
-        try buildRust(allocator, cwd, stdout, inputs);
-    } else if (std.mem.endsWith(u8, inputs.path, "Cargo.toml") or try common.containsCargoManifest(cwd, inputs.path)) {
-        try buildCargo(allocator, cwd, stdout, inputs);
+    var effective_inputs = inputs;
+
+    if (inputs.deterministic_level) |level| {
+        try applyDeterministicFlags(allocator, &effective_inputs, level);
+
+        var normalizer = try deterministic_path.PathNormalizer.init(allocator, cwd, "/build");
+        defer normalizer.deinit();
+
+        const remap_prefix = try normalizer.getRemapArg();
+        try effective_inputs.owned.append(allocator, remap_prefix);
+        effective_inputs.remap_prefix = remap_prefix;
+
+        if (effective_inputs.include_dirs.len != 0) {
+            try sortPathsByNormalized(allocator, &normalizer, effective_inputs.include_dirs, effective_inputs.owned);
+        }
+        if (effective_inputs.lib_dirs.len != 0) {
+            try sortPathsByNormalized(allocator, &normalizer, effective_inputs.lib_dirs, effective_inputs.owned);
+        }
+        if (effective_inputs.extra_sources.len != 0) {
+            try sortPathsByNormalized(allocator, &normalizer, effective_inputs.extra_sources, effective_inputs.owned);
+        }
+        if (effective_inputs.link_libs.len != 0) {
+            deterministic_order.DeterministicOrder.sortLibs(@constCast(effective_inputs.link_libs));
+        }
+    }
+
+    if (std.mem.endsWith(u8, effective_inputs.path, ".c")) {
+        try buildC(allocator, cwd, stdout, effective_inputs);
+    } else if (std.mem.endsWith(u8, effective_inputs.path, ".cpp") or std.mem.endsWith(u8, effective_inputs.path, ".cc") or std.mem.endsWith(u8, effective_inputs.path, ".cxx")) {
+        try buildCpp(allocator, cwd, stdout, effective_inputs);
+    } else if (std.mem.endsWith(u8, effective_inputs.path, ".rs")) {
+        try buildRust(allocator, cwd, stdout, effective_inputs);
+    } else if (std.mem.endsWith(u8, effective_inputs.path, "Cargo.toml") or try common.containsCargoManifest(cwd, effective_inputs.path)) {
+        try buildCargo(allocator, cwd, stdout, effective_inputs);
     } else {
         try stdout.print(">> TODO: BUILD supports only C/C++/Rust sources or Cargo.toml for now.\n", .{});
         return;
@@ -66,6 +176,18 @@ fn buildC(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inputs
         inputs.bootstrap_seed,
     ) catch return;
     defer allocator.free(zig_path);
+    var env_holder = try initEnvHolder(allocator, inputs.isolation_level, &[_][]const u8{zig_path});
+    defer env_holder.deinit();
+
+    var extra_args = std.ArrayList([]const u8).empty;
+    defer extra_args.deinit(allocator);
+    if (inputs.deterministic_level) |level| {
+        try extra_args.appendSlice(allocator, deterministic_flags.DeterministicFlags.forZig(level));
+        try extra_args.appendSlice(allocator, deterministic_flags.DeterministicFlags.forC(level));
+    }
+    if (inputs.remap_prefix) |prefix| {
+        try extra_args.appendSlice(allocator, &[_][]const u8{ "--remap-path-prefix", prefix });
+    }
     const options = core.toolchain_common.CompileOptions{
         .output_name = inputs.output_name,
         .static = true,
@@ -76,6 +198,8 @@ fn buildC(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inputs
         .lib_dirs = inputs.lib_dirs,
         .link_libs = inputs.link_libs,
         .extra_sources = inputs.extra_sources,
+        .extra_args = extra_args.items,
+        .env_map = env_holder.envMap(),
     };
     const driver = core.toolchain_cross.zig_driver.ZigDriver.init(allocator, cwd);
     try driver.compileC(inputs.path, options);
@@ -91,6 +215,18 @@ fn buildCpp(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inpu
         inputs.bootstrap_seed,
     ) catch return;
     defer allocator.free(zig_path);
+    var env_holder = try initEnvHolder(allocator, inputs.isolation_level, &[_][]const u8{zig_path});
+    defer env_holder.deinit();
+
+    var extra_args = std.ArrayList([]const u8).empty;
+    defer extra_args.deinit(allocator);
+    if (inputs.deterministic_level) |level| {
+        try extra_args.appendSlice(allocator, deterministic_flags.DeterministicFlags.forZig(level));
+        try extra_args.appendSlice(allocator, deterministic_flags.DeterministicFlags.forC(level));
+    }
+    if (inputs.remap_prefix) |prefix| {
+        try extra_args.appendSlice(allocator, &[_][]const u8{ "--remap-path-prefix", prefix });
+    }
     const options = core.toolchain_common.CompileOptions{
         .output_name = inputs.output_name,
         .static = true,
@@ -101,6 +237,8 @@ fn buildCpp(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inpu
         .lib_dirs = inputs.lib_dirs,
         .link_libs = inputs.link_libs,
         .extra_sources = inputs.extra_sources,
+        .extra_args = extra_args.items,
+        .env_map = env_holder.envMap(),
     };
     const driver = core.toolchain_cross.zig_driver.ZigDriver.init(allocator, cwd);
     try driver.compileCpp(inputs.path, options);
@@ -125,6 +263,13 @@ fn buildRust(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inp
     ) catch return;
     defer rust_paths.deinit(allocator);
 
+    var env_holder = try initEnvHolder(
+        allocator,
+        inputs.isolation_level,
+        &[_][]const u8{ zig_path, rust_paths.rustc },
+    );
+    defer env_holder.deinit();
+
     try embed.prepareRustEmbeds(
         allocator,
         cwd,
@@ -147,14 +292,15 @@ fn buildRust(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inp
         .link_libs = inputs.link_libs,
         .extra_args = inputs.rustc_extra_args.items,
     };
-    const remap_prefix = try common.getRemapPrefix(allocator, cwd);
-    defer if (remap_prefix) |prefix| allocator.free(prefix);
+    const remap_prefix = if (inputs.remap_prefix) |prefix| prefix else try common.getRemapPrefix(allocator, cwd);
+    if (inputs.remap_prefix == null) {
+        defer if (remap_prefix) |prefix| allocator.free(prefix);
+    }
     var args = try core.toolchain_builder_rust.buildRustArgs(allocator, inputs.path, options, remap_prefix);
     defer args.deinit(allocator);
-    var env_map = try core.toolchain_executor.getEnvMap(allocator);
-    defer env_map.deinit();
-    try core.toolchain_executor.ensureSourceDateEpoch(&env_map);
-    try core.toolchain_executor.runWithEnvMap(allocator, cwd, args.argv.items, inputs.env, &env_map);
+    const env_map = env_holder.envMap();
+    try core.toolchain_executor.ensureSourceDateEpoch(env_map);
+    try core.toolchain_executor.runWithEnvMap(allocator, cwd, args.argv.items, inputs.env, env_map);
 }
 
 fn buildCargo(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inputs: BuildInputs) !void {
@@ -175,6 +321,13 @@ fn buildCargo(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, in
         inputs.bootstrap_sources.rust,
     ) catch return;
     defer rust_paths.deinit(allocator);
+
+    var env_holder = try initEnvHolder(
+        allocator,
+        inputs.isolation_level,
+        &[_][]const u8{ zig_path, rust_paths.rustc, rust_paths.cargo },
+    );
+    defer env_holder.deinit();
 
     try embed.prepareRustEmbeds(
         allocator,
@@ -202,11 +355,12 @@ fn buildCargo(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, in
     };
     var plan = try core.toolchain_builder_rust.buildCargoPlan(allocator, options);
     defer plan.deinit(allocator);
-    var env_map = try core.toolchain_executor.getEnvMap(allocator);
-    defer env_map.deinit();
+    const env_map = env_holder.envMap();
     const existing_rustflags = env_map.get("RUSTFLAGS");
-    const remap_prefix = try common.getRemapPrefix(allocator, cwd);
-    defer if (remap_prefix) |prefix| allocator.free(prefix);
+    const remap_prefix = if (inputs.remap_prefix) |prefix| prefix else try common.getRemapPrefix(allocator, cwd);
+    if (inputs.remap_prefix == null) {
+        defer if (remap_prefix) |prefix| allocator.free(prefix);
+    }
     var env_update = try core.toolchain_builder_rust.buildCargoEnvUpdate(
         allocator,
         options,
@@ -220,8 +374,8 @@ fn buildCargo(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, in
         try env_map.put(key, env_update.linker_value.?);
     }
     try env_map.put("RUSTC", options.rustc_path);
-    try core.toolchain_executor.ensureSourceDateEpoch(&env_map);
-    try core.toolchain_executor.runProcessWithEnv(allocator, cwd, plan.args.argv.items, &env_map);
+    try core.toolchain_executor.ensureSourceDateEpoch(env_map);
+    try core.toolchain_executor.runProcessWithEnv(allocator, cwd, plan.args.argv.items, env_map);
 }
 
 fn verifyStaticLinking(stdout: anytype, output_name: []const u8) !void {

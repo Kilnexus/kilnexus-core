@@ -29,6 +29,7 @@ pub const CompileOptions = struct {
     cargo_manifest_path: ?[]const u8 = null,
     cargo_release: bool = false,
     extra_args: []const []const u8 = &[_][]const u8{},
+    env_map: ?*std.process.EnvMap = null,
 };
 
 comptime {

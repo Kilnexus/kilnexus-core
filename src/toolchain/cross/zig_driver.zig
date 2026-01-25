@@ -51,6 +51,11 @@ pub const ZigDriver = struct {
     pub fn compileC(self: ZigDriver, source: []const u8, options: common.CompileOptions) !void {
         var args = try builder_zig.buildZigArgs(self.allocator, "cc", source, options);
         defer args.deinit(self.allocator);
+        if (options.env_map) |env_map| {
+            try executor.ensureSourceDateEpoch(env_map);
+            try executor.runWithEnvMap(self.allocator, self.cwd, args.argv.items, options.env, env_map);
+            return;
+        }
         var env_map = try executor.getEnvMap(self.allocator);
         defer env_map.deinit();
         try executor.ensureSourceDateEpoch(&env_map);
@@ -60,6 +65,11 @@ pub const ZigDriver = struct {
     pub fn compileCpp(self: ZigDriver, source: []const u8, options: common.CompileOptions) !void {
         var args = try builder_zig.buildZigArgs(self.allocator, "c++", source, options);
         defer args.deinit(self.allocator);
+        if (options.env_map) |env_map| {
+            try executor.ensureSourceDateEpoch(env_map);
+            try executor.runWithEnvMap(self.allocator, self.cwd, args.argv.items, options.env, env_map);
+            return;
+        }
         var env_map = try executor.getEnvMap(self.allocator);
         defer env_map.deinit();
         try executor.ensureSourceDateEpoch(&env_map);
@@ -95,6 +105,11 @@ pub const ZigDriver = struct {
             try args.append(self.allocator, sysroot);
         }
 
+        if (options.env_map) |env_map| {
+            try executor.ensureSourceDateEpoch(env_map);
+            try executor.runWithEnvMap(self.allocator, self.cwd, args.items, options.env, env_map);
+            return;
+        }
         var env_map = try executor.getEnvMap(self.allocator);
         defer env_map.deinit();
         try executor.ensureSourceDateEpoch(&env_map);
