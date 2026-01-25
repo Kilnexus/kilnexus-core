@@ -164,7 +164,6 @@ pub fn verifySha256(path: []const u8, expected_hex: []const u8) !void {
         hasher.update(buf[0..amt]);
     }
     const digest = hasher.finalResult();
-    var hex_buf: [64]u8 = undefined;
-    _ = try std.fmt.bufPrint(&hex_buf, "{}", .{std.fmt.fmtSliceHexLower(digest[0..])});
+    const hex_buf = std.fmt.bytesToHex(digest, .lower);
     if (!std.ascii.eqlIgnoreCase(hex_buf[0..], expected_hex)) return error.Sha256Mismatch;
 }

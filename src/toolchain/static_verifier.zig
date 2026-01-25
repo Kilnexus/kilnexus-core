@@ -5,10 +5,7 @@ pub fn verifyNoSharedDeps(binary_path: []const u8) !void {
     defer file.close();
 
     var header: [64]u8 = undefined;
-    const read_len = file.preadAll(&header, 0) catch |err| switch (err) {
-        error.EndOfStream => return error.UnsupportedBinary,
-        else => return err,
-    };
+    const read_len = try file.preadAll(&header, 0);
     if (read_len < 16) return error.UnsupportedBinary;
 
     if (!std.mem.eql(u8, header[0..4], "\x7fELF")) return error.UnsupportedBinary;

@@ -21,6 +21,7 @@ pub const SysrootConfig = struct {
     owned: std.ArrayList([]const u8),
 
     pub fn init(allocator: std.mem.Allocator) SysrootConfig {
+        _ = allocator;
         return .{
             .root = null,
             .include_dirs = .empty,

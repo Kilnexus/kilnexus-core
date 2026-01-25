@@ -26,7 +26,6 @@ fn resolveToolPathForVersion(
     version: []const u8,
 ) ![]const u8 {
     const rel = try rel_fn(allocator, version);
-    errdefer allocator.free(rel);
 
     if (cwd.access(rel, .{})) |_| {
         return rel;

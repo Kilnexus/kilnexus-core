@@ -136,5 +136,8 @@ pub fn dirExists(path: []const u8) bool {
 }
 
 pub fn ensureDir(path: []const u8) !void {
-    std.fs.cwd().makePath(path);
+    std.fs.cwd().makePath(path) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => return err,
+    };
 }
