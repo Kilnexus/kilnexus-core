@@ -7,6 +7,8 @@ const deterministic_path = @import("deterministic/path_normalize.zig");
 const build_types = @import("../types.zig");
 const c_builder = @import("../builders/c_builder.zig");
 const cmake_builder = @import("../builders/cmake_builder.zig");
+const cargo_builder = @import("../builders/cargo_builder.zig");
+const autotools_builder = @import("../builders/autotools_builder.zig");
 const rust_builder = @import("../builders/rust_builder.zig");
 const verification = @import("../verification/main.zig");
 const packaging = @import("../packaging/main.zig");
@@ -90,6 +92,12 @@ pub fn executeBuild(
 
     if (cmake_builder.isCmakeProject(cwd, effective_inputs.path)) {
         try cmake_builder.buildCmake(allocator, cwd, stdout, effective_inputs);
+        return;
+    } else if (cargo_builder.isCargoProject(cwd, effective_inputs.path)) {
+        try cargo_builder.buildCargo(allocator, cwd, stdout, effective_inputs);
+        return;
+    } else if (autotools_builder.isAutotoolsProject(cwd, effective_inputs.path)) {
+        try autotools_builder.buildAutotools(allocator, cwd, stdout, effective_inputs);
         return;
     } else if (std.mem.endsWith(u8, effective_inputs.path, ".c")) {
         try c_builder.buildC(allocator, cwd, stdout, effective_inputs);
