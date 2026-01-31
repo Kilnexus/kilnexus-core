@@ -1,6 +1,6 @@
 const std = @import("std");
 const core = @import("root.zig");
-const manifest_handler = @import("cli/manifest_handler.zig");
+const manifest_handler = @import("core/manifest/handler.zig");
 const paths_migration = @import("paths/migration.zig");
 
 pub fn main() !void {

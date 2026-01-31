@@ -1,6 +1,6 @@
 const std = @import("std");
 const core = @import("../root.zig");
-const common = @import("common.zig");
+const common = @import("../build/common.zig");
 
 pub const RustPaths = struct {
     rustc: []const u8,
