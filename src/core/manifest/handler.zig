@@ -142,7 +142,7 @@ pub fn handle(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, ma
     const output_name = manifest.project_name orelse "Kilnexus-out";
     var virtual_root = manifest.virtual_root;
     if (manifest.sandbox_build and virtual_root == null) {
-        const sandbox_root = try paths_config.projectPath(allocator, &[_][]const u8{ "sandbox" });
+        const sandbox_root = try paths_config.projectPath(allocator, &[_][]const u8{"sandbox"});
         try owned.append(allocator, sandbox_root);
         try cwd.makePath(sandbox_root);
         virtual_root = sandbox_root;

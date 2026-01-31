@@ -9,7 +9,7 @@ pub const ToolchainLocation = enum {
 pub fn toolchainSearchOrder(allocator: std.mem.Allocator) ![]ToolchainLocation {
     const use_global = try config.envBoolOrDefault(allocator, "KNX_USE_GLOBAL", true);
     if (!use_global) {
-        return allocator.dupe(ToolchainLocation, &[_]ToolchainLocation{ .Project });
+        return allocator.dupe(ToolchainLocation, &[_]ToolchainLocation{.Project});
     }
 
     const env_value = std.process.getEnvVarOwned(allocator, "KNX_TOOLCHAIN_PRIORITY") catch null;

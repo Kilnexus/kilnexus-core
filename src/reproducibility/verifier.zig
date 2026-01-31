@@ -34,7 +34,7 @@ pub fn generateBuildManifest(allocator: std.mem.Allocator, inputs: BuildManifest
         else => return err,
     };
 
-    const manifest_path = try paths_config.projectPath(allocator, &[_][]const u8{ "build-manifest.json" });
+    const manifest_path = try paths_config.projectPath(allocator, &[_][]const u8{"build-manifest.json"});
     defer allocator.free(manifest_path);
     var file = try std.fs.cwd().createFile(manifest_path, .{ .truncate = true });
     defer file.close();

@@ -90,6 +90,7 @@ pub fn executeBuild(
         }
     }
 
+    // Build system detection priority: CMake -> Cargo -> Autotools -> single-file.
     if (cmake_builder.isCmakeProject(cwd, effective_inputs.path)) {
         try cmake_builder.buildCmake(allocator, cwd, stdout, effective_inputs);
         return;

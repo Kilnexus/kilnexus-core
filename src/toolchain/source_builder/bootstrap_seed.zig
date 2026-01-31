@@ -48,7 +48,7 @@ fn runBootstrap(source_root: []const u8, command: ?[]const u8) !void {
     const allocator = std.heap.page_allocator;
     const cmd = try bootstrapCommand(allocator, source_root, command);
     defer allocator.free(cmd);
-    const args = &[_][]const u8{ cmd };
+    const args = &[_][]const u8{cmd};
     try build.runCommand(allocator, source_root, args);
 }
 

@@ -21,7 +21,7 @@ pub fn generateCEmbed(
     alias: []const u8,
     owned: *std.ArrayList([]const u8),
 ) !EmbedResult {
-    const gen_dir = try paths_config.projectPath(allocator, &[_][]const u8{ "gen" });
+    const gen_dir = try paths_config.projectPath(allocator, &[_][]const u8{"gen"});
     try owned.append(allocator, gen_dir);
     const safe_alias = try sanitizeIdentifier(allocator, alias);
     defer allocator.free(safe_alias);

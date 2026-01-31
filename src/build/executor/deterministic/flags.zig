@@ -7,7 +7,7 @@ pub const DeterministicFlags = struct {
     pub fn forZig(level: Level) []const []const u8 {
         return switch (level) {
             .Strict => &[_][]const u8{ "-fno-PIE", "--strip", "-fno-stack-protector" },
-            .Standard => &[_][]const u8{ "--strip" },
+            .Standard => &[_][]const u8{"--strip"},
             .Relaxed => &[_][]const u8{},
         };
     }

@@ -9,7 +9,10 @@ const wrapper_gen = @import("../../interception/wrapper_gen.zig");
 const build_types = @import("../types.zig");
 
 pub fn buildAutotools(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inputs: build_types.BuildInputs) !void {
-    const target = inputs.cross_target orelse hostTarget() orelse return error.MissingTarget;
+    const target = inputs.cross_target orelse hostTarget() orelse {
+        try stdout.print("!! Missing target: provide TARGET or set a host-supported target.\n", .{});
+        return error.MissingTarget;
+    };
     const zig_path = toolchain.resolveOrBootstrapZig(
         allocator,
         cwd,
@@ -37,7 +40,10 @@ pub fn buildAutotools(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: any
 
     const configure_script = try std.fs.path.join(allocator, &[_][]const u8{ source_dir, "configure" });
     defer allocator.free(configure_script);
-    if (!existsPath(configure_script)) return error.MissingConfigure;
+    if (!existsPath(configure_script)) {
+        try stdout.print("!! Autotools configure not found: {s}\n", .{configure_script});
+        return error.MissingConfigure;
+    }
 
     try stdout.print(">> Autotools interception: target {s}, CC={s}\n", .{
         target.toZigTarget(),
@@ -47,7 +53,7 @@ pub fn buildAutotools(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: any
     const configure_args = &[_][]const u8{ configure_script, "--prefix", "dist" };
     try runInDirWithEnv(allocator, source_dir, configure_args, &env.env_map);
 
-    const make_args = &[_][]const u8{ "make" };
+    const make_args = &[_][]const u8{"make"};
     try runInDirWithEnv(allocator, source_dir, make_args, &env.env_map);
 
     try stdout.print(">> Autotools build complete.\n", .{});

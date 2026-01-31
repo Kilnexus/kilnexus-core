@@ -232,7 +232,7 @@ pub fn goInstallDirGlobalForVersion(allocator: std.mem.Allocator, version: []con
 }
 
 pub fn ensureToolchainDir(cwd: std.fs.Dir) !void {
-    const path = try paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{ "toolchains" });
+    const path = try paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{"toolchains"});
     defer std.heap.page_allocator.free(path);
     cwd.makePath(path) catch |err| switch (err) {
         error.PathAlreadyExists => {},
@@ -259,7 +259,7 @@ pub fn ensureProjectCache(cwd: std.fs.Dir) !void {
         error.PathAlreadyExists => {},
         else => return err,
     };
-    const cache_dir = try paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{ "cache" });
+    const cache_dir = try paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{"cache"});
     defer std.heap.page_allocator.free(cache_dir);
     cwd.makePath(cache_dir) catch |err| switch (err) {
         error.PathAlreadyExists => {},

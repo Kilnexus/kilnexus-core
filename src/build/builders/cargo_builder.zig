@@ -9,7 +9,10 @@ const wrapper_gen = @import("../../interception/wrapper_gen.zig");
 const build_types = @import("../types.zig");
 
 pub fn buildCargo(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inputs: build_types.BuildInputs) !void {
-    const target = inputs.cross_target orelse hostTarget() orelse return error.MissingTarget;
+    const target = inputs.cross_target orelse hostTarget() orelse {
+        try stdout.print("!! Missing target: provide TARGET or set a host-supported target.\n", .{});
+        return error.MissingTarget;
+    };
     const zig_path = toolchain.resolveOrBootstrapZig(
         allocator,
         cwd,
@@ -44,6 +47,12 @@ pub fn buildCargo(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
 
     const source_dir = try resolveSourceDir(allocator, cwd, inputs.path);
     defer allocator.free(source_dir);
+    const manifest_path = try std.fs.path.join(allocator, &[_][]const u8{ source_dir, "Cargo.toml" });
+    defer allocator.free(manifest_path);
+    if (!existsPath(manifest_path)) {
+        try stdout.print("!! Cargo manifest not found: {s}\n", .{manifest_path});
+        return error.MissingCargoManifest;
+    }
 
     try stdout.print(">> Cargo interception: target {s}, wrappers {s}\n", .{
         target.toRustTarget(),
@@ -94,6 +103,11 @@ fn hostTarget() ?core.toolchain_cross.target.CrossTarget {
         else => .none,
     };
     return .{ .arch = arch, .os = os, .abi = abi };
+}
+
+fn existsPath(path: []const u8) bool {
+    std.fs.cwd().access(path, .{}) catch return false;
+    return true;
 }
 
 fn runInDirWithEnv(

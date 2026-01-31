@@ -14,21 +14,29 @@ pub fn wrap(allocator: std.mem.Allocator, argv: []const []const u8, vars: MakeVa
     out[0] = argv[0];
 
     var idx: usize = 1;
-    if (vars.cc) |cc| if (!hasVar(argv, "CC")) {
-        out[idx] = try std.fmt.allocPrint(allocator, "CC={s}", .{cc});
-        idx += 1;
+    if (vars.cc) |cc| {
+        if (!hasVar(argv, "CC")) {
+            out[idx] = try std.fmt.allocPrint(allocator, "CC={s}", .{cc});
+            idx += 1;
+        }
     }
-    if (vars.cxx) |cxx| if (!hasVar(argv, "CXX")) {
-        out[idx] = try std.fmt.allocPrint(allocator, "CXX={s}", .{cxx});
-        idx += 1;
+    if (vars.cxx) |cxx| {
+        if (!hasVar(argv, "CXX")) {
+            out[idx] = try std.fmt.allocPrint(allocator, "CXX={s}", .{cxx});
+            idx += 1;
+        }
     }
-    if (vars.ar) |ar| if (!hasVar(argv, "AR")) {
-        out[idx] = try std.fmt.allocPrint(allocator, "AR={s}", .{ar});
-        idx += 1;
+    if (vars.ar) |ar| {
+        if (!hasVar(argv, "AR")) {
+            out[idx] = try std.fmt.allocPrint(allocator, "AR={s}", .{ar});
+            idx += 1;
+        }
     }
-    if (vars.ld) |ld| if (!hasVar(argv, "LD")) {
-        out[idx] = try std.fmt.allocPrint(allocator, "LD={s}", .{ld});
-        idx += 1;
+    if (vars.ld) |ld| {
+        if (!hasVar(argv, "LD")) {
+            out[idx] = try std.fmt.allocPrint(allocator, "LD={s}", .{ld});
+            idx += 1;
+        }
     }
 
     if (argv.len > 1) {

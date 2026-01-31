@@ -10,7 +10,10 @@ const paths_config = @import("../../paths/config.zig");
 const build_types = @import("../types.zig");
 
 pub fn buildCmake(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype, inputs: build_types.BuildInputs) !void {
-    const target = inputs.cross_target orelse hostTarget() orelse return error.MissingTarget;
+    const target = inputs.cross_target orelse hostTarget() orelse {
+        try stdout.print("!! Missing target: provide TARGET or set a host-supported target.\n", .{});
+        return error.MissingTarget;
+    };
     const zig_path = toolchain.resolveOrBootstrapZig(
         allocator,
         cwd,
@@ -23,6 +26,12 @@ pub fn buildCmake(allocator: std.mem.Allocator, cwd: std.fs.Dir, stdout: anytype
 
     const source_dir = try resolveSourceDir(allocator, cwd, inputs.path);
     defer allocator.free(source_dir);
+    const cmake_list = try std.fs.path.join(allocator, &[_][]const u8{ source_dir, "CMakeLists.txt" });
+    defer allocator.free(cmake_list);
+    if (!existsPath(cmake_list)) {
+        try stdout.print("!! CMakeLists.txt not found: {s}\n", .{cmake_list});
+        return error.MissingCMakeLists;
+    }
 
     const build_dir = try paths_config.projectPath(allocator, &[_][]const u8{ "build", "cmake" });
     defer allocator.free(build_dir);
@@ -56,6 +65,11 @@ pub fn isCmakeProject(cwd: std.fs.Dir, path: []const u8) bool {
     var dir = cwd.openDir(path, .{}) catch return false;
     defer dir.close();
     dir.access("CMakeLists.txt", .{}) catch return false;
+    return true;
+}
+
+fn existsPath(path: []const u8) bool {
+    std.fs.cwd().access(path, .{}) catch return false;
     return true;
 }
 

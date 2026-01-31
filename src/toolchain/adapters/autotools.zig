@@ -57,7 +57,7 @@ fn generateConfig(allocator: std.mem.Allocator, cwd: std.fs.Dir, env: *intercept
     const ar_wrapper = try wrapper_gen.generateWrapper(env, cwd, wrapper_dir, .{
         .name = "ar",
         .target_path = env.zig_path.?,
-        .extra_args = &[_][]const u8{ "ar" },
+        .extra_args = &[_][]const u8{"ar"},
     });
     defer env.allocator.free(ar_wrapper);
     const ld_wrapper = try wrapper_gen.generateWrapper(env, cwd, wrapper_dir, .{

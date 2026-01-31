@@ -57,7 +57,7 @@ pub fn copyFile(cwd: std.fs.Dir, src_path: []const u8, dst_path: []const u8) !vo
 }
 
 pub fn ensureReproDir(cwd: std.fs.Dir) !void {
-    const repro_dir = try paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{ "repro" });
+    const repro_dir = try paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{"repro"});
     defer std.heap.page_allocator.free(repro_dir);
     cwd.makePath(repro_dir) catch |err| switch (err) {
         error.PathAlreadyExists => {},

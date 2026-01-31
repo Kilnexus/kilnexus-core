@@ -26,7 +26,7 @@ pub fn buildMusl(source_root: []const u8, install_dir: []const u8) !void {
     const allocator = std.heap.page_allocator;
     const configure = &[_][]const u8{ "./configure", "--prefix", install_dir };
     try runCommand(allocator, source_root, configure);
-    const make_args = &[_][]const u8{ "make" };
+    const make_args = &[_][]const u8{"make"};
     try runCommand(allocator, source_root, make_args);
     const install_args = &[_][]const u8{ "make", "install" };
     try runCommand(allocator, source_root, install_args);

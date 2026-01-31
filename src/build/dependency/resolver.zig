@@ -11,13 +11,13 @@ pub const DepResolve = struct {
 };
 
 pub fn ensureDepsDirs(cwd: std.fs.Dir) !void {
-    const deps_dir = try paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{ "deps" });
+    const deps_dir = try paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{"deps"});
     defer std.heap.page_allocator.free(deps_dir);
     cwd.makePath(deps_dir) catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => return err,
     };
-    const gen_dir = try paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{ "gen" });
+    const gen_dir = try paths_config.projectPath(std.heap.page_allocator, &[_][]const u8{"gen"});
     defer std.heap.page_allocator.free(gen_dir);
     cwd.makePath(gen_dir) catch |err| switch (err) {
         error.PathAlreadyExists => {},
