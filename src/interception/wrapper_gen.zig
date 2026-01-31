@@ -30,6 +30,8 @@ pub fn generateWrapper(
     dir: []const u8,
     spec: WrapperSpec,
 ) ![]const u8 {
+    const resolved_target = try resolveExecutable(env, spec.target_path);
+    defer env.allocator.free(resolved_target);
     const path = try wrapperPath(env.allocator, dir, spec.name);
     errdefer env.allocator.free(path);
 
@@ -42,11 +44,11 @@ pub fn generateWrapper(
     defer env.allocator.free(extra);
     if (builtin.target.os.tag == .windows) {
         try writer.interface.writeAll("@echo off\n");
-        try writer.interface.print("\"{s}\"{s} %*\n", .{ spec.target_path, extra });
+        try writer.interface.print("\"{s}\"{s} %*\n", .{ resolved_target, extra });
         try writer.interface.writeAll("exit /b %errorlevel%\n");
     } else {
         try writer.interface.writeAll("#!/bin/sh\n");
-        try writer.interface.print("exec \"{s}\"{s} \"$@\"\n", .{ spec.target_path, extra });
+        try writer.interface.print("exec \"{s}\"{s} \"$@\"\n", .{ resolved_target, extra });
     }
     try writer.interface.flush();
 
@@ -55,6 +57,41 @@ pub fn generateWrapper(
     }
 
     return path;
+}
+
+fn resolveExecutable(env: *common.InterceptionEnv, name: []const u8) ![]const u8 {
+    if (std.fs.path.isAbsolute(name) or std.mem.indexOfScalar(u8, name, std.fs.path.sep) != null) {
+        return env.allocator.dupe(u8, name);
+    }
+
+    const path_var = env.env_map.get("PATH") orelse return env.allocator.dupe(u8, name);
+    var it = std.mem.splitScalar(u8, path_var, std.fs.path.delimiter);
+    while (it.next()) |dir| {
+        if (dir.len == 0) continue;
+        if (try findExecutableInDir(env.allocator, dir, name)) |found| return found;
+    }
+    return env.allocator.dupe(u8, name);
+}
+
+fn findExecutableInDir(allocator: std.mem.Allocator, dir: []const u8, name: []const u8) !?[]const u8 {
+    const base = try std.fs.path.join(allocator, &[_][]const u8{ dir, name });
+    defer allocator.free(base);
+    if (existsPath(base)) return allocator.dupe(u8, base);
+
+    if (builtin.target.os.tag == .windows and std.fs.path.extension(name).len == 0) {
+        const exts = &[_][]const u8{ ".exe", ".cmd", ".bat" };
+        for (exts) |ext| {
+            const candidate = try std.fmt.allocPrint(allocator, "{s}{s}", .{ base, ext });
+            defer allocator.free(candidate);
+            if (existsPath(candidate)) return allocator.dupe(u8, candidate);
+        }
+    }
+    return null;
+}
+
+fn existsPath(path: []const u8) bool {
+    std.fs.cwd().access(path, .{}) catch return false;
+    return true;
 }
 
 fn wrapperPath(allocator: std.mem.Allocator, dir: []const u8, name: []const u8) ![]const u8 {

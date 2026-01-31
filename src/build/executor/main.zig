@@ -6,6 +6,7 @@ const deterministic_order = @import("deterministic/order.zig");
 const deterministic_path = @import("deterministic/path_normalize.zig");
 const build_types = @import("../types.zig");
 const c_builder = @import("../builders/c_builder.zig");
+const cmake_builder = @import("../builders/cmake_builder.zig");
 const rust_builder = @import("../builders/rust_builder.zig");
 const verification = @import("../verification/main.zig");
 const packaging = @import("../packaging/main.zig");
@@ -87,7 +88,10 @@ pub fn executeBuild(
         }
     }
 
-    if (std.mem.endsWith(u8, effective_inputs.path, ".c")) {
+    if (cmake_builder.isCmakeProject(cwd, effective_inputs.path)) {
+        try cmake_builder.buildCmake(allocator, cwd, stdout, effective_inputs);
+        return;
+    } else if (std.mem.endsWith(u8, effective_inputs.path, ".c")) {
         try c_builder.buildC(allocator, cwd, stdout, effective_inputs);
     } else if (std.mem.endsWith(u8, effective_inputs.path, ".cpp") or std.mem.endsWith(u8, effective_inputs.path, ".cc") or std.mem.endsWith(u8, effective_inputs.path, ".cxx")) {
         try c_builder.buildCpp(allocator, cwd, stdout, effective_inputs);
